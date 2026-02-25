@@ -1,0 +1,4 @@
+/ha_assist/.venv
+/ha_assist/.env
+
+*/**/__pycache__/

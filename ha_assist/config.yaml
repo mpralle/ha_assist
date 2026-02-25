@@ -1,0 +1,22 @@
+name: "HA Assist"
+description: "A custom assistant add-on for Home Assistant"
+version: "0.1.0"
+slug: "ha_assist"
+url: "https://github.com/mpralle/ha_assist"
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
+init: false
+startup: application
+boot: auto
+homeassistant_api: true
+map:
+  - config:rw
+  - share:rw
+options:
+  log_level: info
+schema:
+  log_level: list(trace|debug|info|notice|warning|error|fatal)?
