@@ -16,7 +16,7 @@ _TASK_OBJECT: Dict[str, Any] = {
         "type": {"type": "string"},
         "task": {"type": "string"},
         "check": {"type": "object"},
-        "logic": {"type": "string"},
+        "condition": {"type": "object"},
         "then": {"type": "array"},
         "else": {"type": "array"},
         "steps": {"type": "array"},

@@ -54,45 +54,39 @@ def _build_entity_list(ha_context: Dict[str, Any]) -> str:
 
 
 def build_prompt(ha_context: Dict[str, Any]) -> str:
-    """Build the system prompt for the EntitySelector step."""
+    """Build the system prompt for the EntitySelector step.
+
+    The prompt is intentionally simple: the LLM receives a flat list of
+    items that need entity resolution and returns a flat list of resolved
+    items.  All structural nesting (conditions, sequences, etc.) is handled
+    programmatically in the step, not by the LLM.
+    """
     entity_list = _build_entity_list(ha_context)
 
     return f"""\
 You are an Entity Selector for a Home Assistant smart home system.
 
 INPUT
-You receive a JSON object with an "actions" array from the previous step (TaskExtractor).
-Each action has a "type" and a "task" describing what the user wants.
+You receive a JSON object with an "items" array.
+Each item has an "id" (number), "type" ("device_control" or "state"), and "task" (description).
 
 YOUR JOB
-For each action with type "device_control", resolve:
-1. Which specific entity_id(s) are needed to fulfil the "task"
-2. Which Home Assistant service to call on each entity
-
-For each action with type "state", resolve:
-1. Which specific entity_id to read the state from
-
-For actions with type "list", "condition", "sequence", or "monitor", pass them through unchanged but resolve any nested actions inside "then", "else", or "steps".
+For each item, resolve:
+1. "entity_id": the exact Home Assistant entity_id that matches the task
+2. "service": the exact Home Assistant service to call (only for "device_control" items; omit for "state" items)
 
 OUTPUT FORMAT (STRICT)
-Return a single JSON object with the same structure as the input, but each resolved action now includes:
-- "entity_id": the exact Home Assistant entity_id (string)
-- "service": the exact Home Assistant service to call (string, e.g. "light.turn_off")
-
-For "state" type actions, only add "entity_id" (no service needed).
-
-If a task maps to multiple entities, create separate action objects for each.
-
-Example input:
-{{ "actions": [{{ "type": "device_control", "task": "Turn off kitchen lights" }}] }}
-
-Example output:
-{{ "actions": [{{ "type": "device_control", "task": "Turn off kitchen lights", "entity_id": "light.kitchen", "service": "light.turn_off" }}] }}
+Return a JSON object:
+{{ "items": [
+  {{ "id": 0, "entity_id": "light.kitchen", "service": "light.turn_off" }},
+  {{ "id": 1, "entity_id": "sensor.temperature" }}
+] }}
 
 Rules:
 - Return ONLY valid JSON, no explanations, no markdown.
-- Use exact entity_id values from the list below.
-- Use exact service names from the available services listed.
+- Each output item must have the same "id" as the input item.
+- "entity_id" MUST be the FULL entity_id including the domain prefix, exactly as listed below (e.g. "light.kitchen", "media_player.musikanlage", NOT just "kitchen" or "musikanlage").
+- Use exact service names from the available services listed (e.g. "light.turn_off", "media_player.turn_off").
 - If you cannot match a task to an entity, set "entity_id" to "unknown" and "service" to "unknown".
 - Match entities by their friendly_name or entity_id — pick the closest match.
 

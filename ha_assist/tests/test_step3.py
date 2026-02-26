@@ -26,7 +26,7 @@ print(f"Service domains: {len(services)}")
 print()
 
 # ── 2. Run Step 1: TaskExtractor ─────────────────────────────────────────────
-USER_INPUT = "If the tv is off, turn off the schreibtischlampe."
+USER_INPUT = "If the musikanlage is on, turn off the schreibtischlampe."
 
 print("=" * 60)
 print(f"Step 1 — User input: {USER_INPUT}")

@@ -142,14 +142,17 @@ Use when an action depends on a state check, or the user says "if", "when", "unl
 {{
   "type": "condition",
   "check": {{ "type": "state", "task": "..." }},
-  "logic": "some expression",
+  "condition": {{ "attribute": "state", "operator": "==", "value": "off" }},
   "then": [ ...task objects... ],
   "else": [ ...task objects... ]
 }}
 
 Rules:
 - "check" must be a task object with type "state".
-- "logic" is a string such as "value > 75" or "status == unlocked".
+- "condition" is a structured object with:
+  - "attribute": the entity attribute to check. Use "state" for the main state (on/off/open/closed/etc.), or a specific attribute name like "brightness", "temperature", "humidity".
+  - "operator": one of "==", "!=", ">", "<", ">=", "<="
+  - "value": the expected value (string or number). Use strings for state comparisons ("on", "off", "open", "closed", "locked", "unlocked") and numbers for numeric comparisons.
 - "then" and "else" must be arrays of task objects (can be empty).
 
 3) Sequence tasks (ordered steps / dependencies)
@@ -169,17 +172,17 @@ Format:
 {{
   "type": "monitor",
   "check": {{ "type": "state", "task": "..." }},
-  "logic": "some expression",
+  "condition": {{ "attribute": "state", "operator": "==", "value": "closed" }},
   "then": [ ...task objects... ],
   "else": [ ...task objects... ]
 }}
 
 Rules:
 - "check" must be a task object with type "state".
-- "logic" is a string such as "value < 55" or "status == closed".
+- "condition" follows the same structured format as in conditional tasks.
 - "poll_seconds" is how often to re-check (default: 60 if not specified by user).
 - "timeout_seconds" is max time to wait; use 0 for no timeout unless user specifies a limit.
-- When the "logic" becomes true, run "then".
+- When the "condition" becomes true, run "then".
 - If "timeout_seconds" > 0 and time runs out, run "else" (otherwise use an empty array).
 
 GUIDELINES
@@ -192,15 +195,27 @@ GUIDELINES
   - Use "sequence" when the user indicates ordering or dependencies.
 - Use monitor for "until/when reached":
   - Phrases like "until X", "when X is reached", "once it drops below", "keep it running until" should be represented with a "monitor" task, optionally inside a "sequence".
+- Condition operator direction:
+  - "if X is off" means operator "==" and value "off" (check if the state EQUALS the mentioned value).
+  - "if X is NOT off" means operator "!=" and value "off".
+  - NEVER invert the operator. The "then" branch runs when the condition is TRUE.
 
 EXAMPLES FOR CALIBRATION
 
-Input: "Turn off the kitchen lights and add eggs to my list."
+Input: "If the radio is off, turn off the desk lamp."
 Output:
 {{ "actions": [
-  {{ "type": "device_control", "task": "Turn off kitchen lights" }},
-  {{ "type": "list", "task": "Add eggs to shopping list" }}
+  {{
+    "type": "condition",
+    "check": {{ "type": "state", "task": "Get radio state" }},
+    "condition": {{ "attribute": "state", "operator": "==", "value": "off" }},
+    "then": [
+      {{ "type": "device_control", "task": "Turn off desk lamp" }}
+    ],
+    "else": []
+  }}
 ] }}
+
 
 Input: "If the garage is open, close it and text me."
 Output:
@@ -208,7 +223,7 @@ Output:
   {{
     "type": "condition",
     "check": {{ "type": "state", "task": "Get garage door status" }},
-    "logic": "status == open",
+    "condition": {{ "attribute": "state", "operator": "==", "value": "open" }},
     "then": [
       {{ "type": "device_control", "task": "Close garage door" }},
       {{ "type": "device_control", "task": "Send notification: Garage was closed" }}
@@ -226,7 +241,7 @@ Output:
       {{
         "type": "condition",
         "check": {{ "type": "state", "task": "Get front door lock status" }},
-        "logic": "status == unlocked",
+        "condition": {{ "attribute": "state", "operator": "==", "value": "unlocked" }},
         "then": [
           {{ "type": "device_control", "task": "Lock front door" }}
         ],
@@ -246,13 +261,13 @@ Output:
       {{
         "type": "condition",
         "check": {{ "type": "state", "task": "Get indoor humidity" }},
-        "logic": "value > 60",
+        "condition": {{ "attribute": "humidity", "operator": ">", "value": 60 }},
         "then": [
           {{ "type": "device_control", "task": "Turn on dehumidifier" }},
           {{
             "type": "monitor",
             "check": {{ "type": "state", "task": "Get indoor humidity" }},
-            "logic": "value < 55",
+            "condition": {{ "attribute": "humidity", "operator": "<", "value": 55 }},
             "then": [
               {{ "type": "device_control", "task": "Turn off dehumidifier" }}
             ],
@@ -271,7 +286,7 @@ Output:
   {{
     "type": "monitor",
     "check": {{ "type": "state", "task": "Get time" }},
-    "logic": "value > 4pm tomorrow",
+    "condition": {{ "attribute": "state", "operator": ">=", "value": "16:00" }},
     "then": [
       {{ "type": "device_control", "task": "Turn on lights" }}
     ],
