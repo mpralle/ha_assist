@@ -88,30 +88,68 @@ def _fetch_services_rest():
     return services
 
 
+def _fetch_entry_options() -> dict:
+    """Fetch the ha_assist config entry options from the live HA instance."""
+    url = f"{_HA_URL.rstrip('/')}/api/config/config_entries"
+    resp = requests.get(url, headers=_HEADERS, timeout=30)
+    resp.raise_for_status()
+    for entry in resp.json():
+        if entry.get("domain") == "ha_assist":
+            return entry.get("options", {})
+    print("WARNING: No ha_assist config entry found, using unfiltered context.")
+    return {}
+
+
 def get_real_ha_context():
-    """Fetch current Home Assistant state via REST for local testing."""
-    entity_ids = []
-    entity_details = []
-    
+    """Fetch HA state via REST, filtered by live entry options."""
     url = f"{_HA_URL.rstrip('/')}/api/states"
     resp = requests.get(url, headers=_HEADERS, timeout=30)
     resp.raise_for_status()
-    
-    for state_obj in resp.json():
-        entity_id = state_obj["entity_id"]
-        entity_ids.append(entity_id)
-        entity_details.append({
-            "entity_id": entity_id,
-            "domain": entity_id.split(".")[0],
-            "state": state_obj["state"],
-            "friendly_name": state_obj.get("attributes", {}).get("friendly_name", entity_id),
-        })
 
-    services = _fetch_services_rest()
+    options = _fetch_entry_options()
+    exposed: dict = options.get("exposed", {})
+
+    all_entity_details = [
+        {
+            "entity_id": s["entity_id"],
+            "domain": s["entity_id"].split(".")[0],
+            "state": s["state"],
+            "friendly_name": s.get("attributes", {}).get("friendly_name", s["entity_id"]),
+        }
+        for s in resp.json()
+    ]
+
+    if not exposed:
+        # No filter configured — use everything
+        services = _fetch_services_rest()
+        return {
+            "hass": "DUMMY_HASS",
+            "entities": [e["entity_id"] for e in all_entity_details],
+            "entity_details": all_entity_details,
+            "services": services,
+        }
+
+    # Apply the same filter logic as get_filtered_ha_context in conversation.py
+    entity_details = [
+        {**e, "allowed_services": exposed[e["entity_id"]]["services"]}
+        for e in all_entity_details
+        if e["entity_id"] in exposed
+    ]
+
+    services: dict = {}
+    for entity_id, config in exposed.items():
+        domain = entity_id.split(".")[0]
+        if domain not in services:
+            services[domain] = []
+        for svc in config["services"]:
+            if svc not in services[domain]:
+                services[domain].append(svc)
+
+    print(f"Loaded options from HA: {len(exposed)} exposed entities")
 
     return {
-        "hass": "DUMMY_HASS", # For executor signature compat
-        "entities": entity_ids,
+        "hass": "DUMMY_HASS",
+        "entities": list(exposed.keys()),
         "entity_details": entity_details,
         "services": services,
     }
