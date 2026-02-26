@@ -13,6 +13,33 @@ import requests
 
 from dotenv import load_dotenv
 
+import sys
+import os
+
+# ── Mock Home Assistant Components before importing them ────────────────────
+# We must mock the entire homeassistant tree, otherwise imports in conversation.py
+# or pipeline.py will fail trying to load actual HA code (which requires hassil,
+# voluptuous, etc. that aren't present in this basic venv).
+from unittest.mock import MagicMock
+import sys
+
+class AttrDict(dict):
+    def __init__(self, *args, **kwargs):
+        super(AttrDict, self).__init__(*args, **kwargs)
+        self.__dict__ = self
+
+mock_ha = MagicMock()
+mock_ha.core.HomeAssistant = MagicMock
+mock_ha.config_entries.ConfigEntry = MagicMock
+sys.modules['homeassistant'] = mock_ha
+sys.modules['homeassistant.core'] = mock_ha.core
+sys.modules['homeassistant.config_entries'] = mock_ha.config_entries
+sys.modules['homeassistant.components'] = mock_ha.components
+sys.modules['homeassistant.components.conversation'] = mock_ha.components.conversation
+sys.modules['homeassistant.helpers'] = mock_ha.helpers
+sys.modules['homeassistant.helpers.intent'] = mock_ha.helpers.intent
+sys.modules['voluptuous'] = MagicMock()
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from custom_components.ha_assist.pipeline import run_pipeline
@@ -41,7 +68,7 @@ _HEADERS = {
 }
 
 SLEEP_TIME = 2
-USER_INPUT = "turn on the schreibtischlampe."
+USER_INPUT = "turn off the schreibtischlampe."
 
 start_time = time.time()
 sleep_time = 0
@@ -49,7 +76,7 @@ sleep_time = 0
 # ── Local REST Mocks & Context ──────────────────────────────────────────────
 
 def _fetch_services_rest():
-    url = f"{_HA_URL.rstrip('/')}/services"
+    url = f"{_HA_URL.rstrip('/')}/api/services"
     resp = requests.get(url, headers=_HEADERS, timeout=30)
     resp.raise_for_status()
     services = {}
@@ -66,7 +93,7 @@ def get_real_ha_context():
     entity_ids = []
     entity_details = []
     
-    url = f"{_HA_URL.rstrip('/')}/states"
+    url = f"{_HA_URL.rstrip('/')}/api/states"
     resp = requests.get(url, headers=_HEADERS, timeout=30)
     resp.raise_for_status()
     
@@ -93,7 +120,7 @@ def get_real_ha_context():
 def local_executor_call_service(domain, service, entity_id, hass):
     """Override Executor's native Service Call with REST for testing."""
     full_service = f"{domain}.{service}"
-    url = f"{_HA_URL.rstrip('/')}/services/{domain}/{service}"
+    url = f"{_HA_URL.rstrip('/')}/api/services/{domain}/{service}"
     payload = {"entity_id": entity_id}
 
     try:
@@ -112,7 +139,7 @@ def local_executor_call_service(domain, service, entity_id, hass):
 
 def local_executor_fetch_entity_state(entity_id, hass):
     """Override Executor's native State Fetch with REST for testing."""
-    url = f"{_HA_URL.rstrip('/')}/states/{entity_id}"
+    url = f"{_HA_URL.rstrip('/')}/api/states/{entity_id}"
     try:
         resp = requests.get(url, headers=_HEADERS, timeout=30)
         resp.raise_for_status()

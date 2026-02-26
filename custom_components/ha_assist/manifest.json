@@ -1,7 +1,7 @@
 {
     "domain": "ha_assist",
     "name": "HA Assist",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "dependencies": [
         "conversation"
     ],
@@ -10,7 +10,6 @@
     ],
     "requirements": [
         "anthropic==0.42.0",
-        "homeassistant_api==0.3.0",
         "requests==2.32.3",
         "pydantic==2.10.4"
     ],
