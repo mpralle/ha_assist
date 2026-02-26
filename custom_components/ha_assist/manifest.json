@@ -1,7 +1,7 @@
 {
     "domain": "ha_assist",
     "name": "HA Assist",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "dependencies": [
         "conversation"
     ],
@@ -9,9 +9,7 @@
         "@mpralle"
     ],
     "requirements": [
-        "anthropic==0.42.0",
-        "requests==2.32.3",
-        "pydantic==2.10.4"
+        "requests>=2.32.3"
     ],
     "config_flow": true,
     "iot_class": "local_push"
