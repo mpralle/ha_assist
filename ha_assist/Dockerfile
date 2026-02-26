@@ -8,14 +8,16 @@ RUN apk add --no-cache \
 
 # Install Python dependencies
 COPY requirements.txt /tmp/
-RUN pip3 install --no-cache-dir -r /tmp/requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements.txt
 
 # Copy root filesystem
 COPY rootfs /
 
 # Copy application code
 COPY assist.py /
-COPY jimmy-connection.py /
+COPY jimmy_connection.py /
+COPY prompts/ /prompts/
+COPY steps/ /steps/
 COPY run.sh /
 RUN chmod a+x /run.sh
 

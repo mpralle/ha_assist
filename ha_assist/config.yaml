@@ -1,6 +1,6 @@
 name: "HA Assist"
 description: "A custom assistant add-on for Home Assistant"
-version: "0.1.0"
+version: "0.1.1"
 slug: "ha_assist"
 url: "https://github.com/mpralle/ha_assist"
 arch:
