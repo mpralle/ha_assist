@@ -1,4 +1,4 @@
-"""Quick test for Step 1 + Step 2 + Step 3: TaskExtractor → EntitySelector → Executor.
+"""Quick test for Steps 1–4: TaskExtractor → EntitySelector → Executor → Summary.
 
 Usage (with venv activated, .env configured):
     python tests/test_step3.py
@@ -11,7 +11,7 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from assist import get_ha_context
-from steps import TaskExtractor, EntitySelector, Executor
+from steps import TaskExtractor, EntitySelector, Executor, Summary
 
 # ── 1. Gather HA context ─────────────────────────────────────────────────────
 print("=" * 60)
@@ -26,7 +26,7 @@ print(f"Service domains: {len(services)}")
 print()
 
 # ── 2. Run Step 1: TaskExtractor ─────────────────────────────────────────────
-USER_INPUT = "If the musikanlage is on, turn off the schreibtischlampe."
+USER_INPUT = "turn off the schreibtischlampe."
 
 print("=" * 60)
 print(f"Step 1 — User input: {USER_INPUT}")
@@ -54,3 +54,14 @@ print("=" * 60)
 step3_result = Executor().run(step2_result, ha_context)
 print("\nExecutor result:")
 print(json.dumps(step3_result, indent=2, ensure_ascii=False))
+time.sleep(2)
+
+# ── 5. Run Step 4: Summary ───────────────────────────────────────────────────
+print("\n" + "=" * 60)
+print("Step 4 — Summary (include_errors=True)")
+print("=" * 60)
+
+step4_result = Summary(include_errors=True).run(step3_result, ha_context)
+print("\nSummary result:")
+print(json.dumps(step4_result, indent=2, ensure_ascii=False))
+
