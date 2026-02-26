@@ -16,8 +16,9 @@ from __future__ import annotations
 import json
 import re
 from typing import Any, Dict, Optional, Union
+import asyncio
 
-import requests
+import aiohttp
 from jsonschema import validate
 from jsonschema.exceptions import ValidationError
 from json_repair import repair_json
@@ -64,7 +65,7 @@ def parse_json_with_repair(raw: str) -> JsonType:
     return json.loads(repaired)
 
 
-def sendMsg(
+async def async_send_msg(
     system_prompt: str,
     user_input: str,
     schema: Dict[str, Any],
@@ -92,7 +93,7 @@ def sendMsg(
       - Parsed JSON (dict/list/etc.) if parsing succeeds and schema validation passes
 
     Raises:
-      - requests.HTTPError on non-2xx responses
+      - aiohttp.ClientResponseError on non-2xx responses
       - json.JSONDecodeError if parsing fails even after repair attempts
       - jsonschema.ValidationError if schema validation fails
     """
@@ -119,16 +120,17 @@ def sendMsg(
         headers["Authorization"] = auth_header  # or use "Cookie" if your setup needs it
 
     url = f"{base_url.rstrip('/')}/api/chat"
-    resp = requests.post(url, headers=headers, json=payload, timeout=timeout_seconds)
+    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+    
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with session.post(url, headers=headers, json=payload) as resp:
+            raw_text = await resp.text()
+            if not resp.ok:
+                body_preview = (raw_text or "")[:1000]
+                raise Exception(
+                    f"API error: {resp.status} {resp.reason}\nBody: {body_preview}"
+                )
 
-    if not resp.ok:
-        body_preview = (resp.text or "")[:1000]
-        raise requests.HTTPError(
-            f"API error: {resp.status_code} {resp.reason}\nBody: {body_preview}",
-            response=resp,
-        )
-
-    raw_text = resp.text
     parsed = parse_json_with_repair(raw_text)
 
     # Validate against provided schema

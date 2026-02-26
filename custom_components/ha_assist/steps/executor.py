@@ -19,18 +19,13 @@ logger = logging.getLogger(__name__)
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-def _call_service(domain: str, service: str, entity_id: str, hass: HomeAssistant) -> Dict[str, Any]:
-    """Call a Home Assistant service."""
+async def _async_call_service(domain: str, service: str, entity_id: str, hass: HomeAssistant) -> Dict[str, Any]:
+    """Call a Home Assistant service incrementally using asyncio."""
     full_service = f"{domain}.{service}"
     payload: Dict[str, Any] = {"entity_id": entity_id}
 
     try:
-        # Run threadsafe from our background thread context:
-        future = asyncio.run_coroutine_threadsafe(
-            hass.services.async_call(domain, service, payload, blocking=True),
-            hass.loop
-        )
-        future.result(timeout=30)
+        await hass.services.async_call(domain, service, payload, blocking=True)
         logger.info("Service %s called on %s – OK", full_service, entity_id)
         return {"success": True, "entity_id": entity_id, "service": full_service}
     except Exception as exc:
@@ -116,6 +111,9 @@ def _evaluate_condition(condition: Dict[str, Any], state_data: Dict[str, Any]) -
 # ── Recursive action executor ────────────────────────────────────────────────
 
 def _execute_actions(actions: List[Dict[str, Any]], hass: HomeAssistant) -> List[Dict[str, Any]]:
+    pass # Replaced temporarily
+    
+async def _async_execute_actions(actions: List[Dict[str, Any]], hass: HomeAssistant) -> List[Dict[str, Any]]:
     """Recursively execute a list of actions and return results."""
     results: List[Dict[str, Any]] = []
 
@@ -123,10 +121,10 @@ def _execute_actions(actions: List[Dict[str, Any]], hass: HomeAssistant) -> List
         action_type = action.get("type")
 
         if action_type == "device_control":
-            results.append(_execute_device_control(action, hass))
+            results.append(await _async_execute_device_control(action, hass))
 
         elif action_type == "condition":
-            results.append(_execute_condition(action, hass))
+            results.append(await _async_execute_condition(action, hass))
 
         else:
             # Pass through unknown types unchanged
@@ -135,7 +133,7 @@ def _execute_actions(actions: List[Dict[str, Any]], hass: HomeAssistant) -> List
     return results
 
 
-def _execute_device_control(action: Dict[str, Any], hass: HomeAssistant) -> Dict[str, Any]:
+async def _async_execute_device_control(action: Dict[str, Any], hass: HomeAssistant) -> Dict[str, Any]:
     """Execute a device_control action."""
     service_full = action.get("service", "")
     entity_id = action.get("entity_id", "")
@@ -152,11 +150,11 @@ def _execute_device_control(action: Dict[str, Any], hass: HomeAssistant) -> Dict
         }
 
     domain, service_name = service_full.split(".", 1)
-    result = _call_service(domain, service_name, entity_id, hass)
+    result = await _async_call_service(domain, service_name, entity_id, hass)
     return {**action, "result": result}
 
 
-def _execute_condition(action: Dict[str, Any], hass: HomeAssistant) -> Dict[str, Any]:
+async def _async_execute_condition(action: Dict[str, Any], hass: HomeAssistant) -> Dict[str, Any]:
     """Evaluate a condition and execute the appropriate branch."""
     check = action.get("check", {})
     condition = action.get("condition", {})
@@ -192,7 +190,7 @@ def _execute_condition(action: Dict[str, Any], hass: HomeAssistant) -> Dict[str,
     # Execute the appropriate branch
     branch_name = "then" if condition_met else "else"
     branch = then_branch if condition_met else else_branch
-    branch_results = _execute_actions(branch, hass)
+    branch_results = await _async_execute_actions(branch, hass)
 
     return {
         **action,
@@ -215,10 +213,10 @@ class Executor:
     Evaluates conditions and calls HA services.
     """
 
-    def run(self, previous_output: Any, ha_context: Dict[str, Any]) -> Any:
+    async def async_run(self, previous_output: Any, ha_context: Dict[str, Any]) -> Any:
         actions: List[Dict[str, Any]] = previous_output.get("actions", [])
         hass = ha_context.get("hass")
         if not hass:
             raise RuntimeError("HA context missing 'hass' object.")
-        results = _execute_actions(actions, hass)
+        results = await _async_execute_actions(actions, hass)
         return {"actions": results}

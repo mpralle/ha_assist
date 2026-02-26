@@ -5,7 +5,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import intent
 from homeassistant.config_entries import ConfigEntry
 
-from .pipeline import run_pipeline, get_ha_context
+from .pipeline import async_run_pipeline, get_ha_context
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -30,10 +30,8 @@ class HAAssistAgent(conversation.AbstractConversationAgent):
             # get_ha_context uses hass.states.async_all() safely inside an async context
             ha_context = get_ha_context(self.hass)
             
-            # run_pipeline uses requests synchronously, so it must run in an executor thread
-            result = await self.hass.async_add_executor_job(
-                run_pipeline, text, ha_context, self.hass
-            )
+            # async_run_pipeline uses aiohttp, so it can run natively in the async event loop
+            result = await async_run_pipeline(text, ha_context, self.hass)
             
             response_text = "Unknown error"
             if isinstance(result, dict) and "message" in result:

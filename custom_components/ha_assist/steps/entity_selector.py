@@ -15,7 +15,7 @@ import copy
 import json
 from typing import Any, Dict, List, Tuple
 
-from ..jimmy_connection import sendMsg
+from ..jimmy_connection import async_send_msg
 from ..prompts.entity_selector import build_prompt
 
 
@@ -141,7 +141,7 @@ def _merge_resolved(
 class EntitySelector:
     """Step 2 of the agent pipeline."""
 
-    def run(self, previous_output: Any, ha_context: Dict[str, Any]) -> Any:
+    async def async_run(self, previous_output: Any, ha_context: Dict[str, Any]) -> Any:
         # Deep-copy so we don't mutate the original
         actions = copy.deepcopy(previous_output.get("actions", []))
 
@@ -154,7 +154,7 @@ class EntitySelector:
         # 2. Resolve: send flat list to LLM
         system_prompt = build_prompt(ha_context)
         user_message = json.dumps({"items": items}, ensure_ascii=False)
-        llm_result = sendMsg(system_prompt, user_message, SCHEMA)
+        llm_result = await async_send_msg(system_prompt, user_message, SCHEMA)
 
         # Build a map from id → resolved fields
         resolved_map: Dict[int, Dict[str, Any]] = {}
