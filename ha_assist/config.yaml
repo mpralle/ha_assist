@@ -1,6 +1,6 @@
 name: "HA Assist"
 description: "A custom assistant add-on for Home Assistant"
-version: "0.1.3"
+version: "0.1.4"
 slug: "ha_assist"
 url: "https://github.com/mpralle/ha_assist"
 arch:
@@ -24,3 +24,9 @@ ports:
   10400/tcp: 10400
 discovery:
   - wyoming
+
+
+ports:
+  10400/tcp: 10400
+ports_description:
+  10400/tcp: Wyoming protocol

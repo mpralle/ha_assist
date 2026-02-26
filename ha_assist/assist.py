@@ -119,7 +119,7 @@ def run_pipeline(user_input: str, ha_context: Dict[str, Any]) -> Any:
 import argparse
 import asyncio
 from wyoming.event import Event
-from wyoming.info import Describe, Info, HandleProgram
+from wyoming.info import Describe, Info, HandleProgram, Attribution
 from wyoming.asr import Transcript
 from wyoming.intent import Recognize
 from wyoming.handle import Handled
@@ -133,8 +133,18 @@ class AssistEventHandler(AsyncEventHandler):
         if Describe.is_type(event.type):
             await self.write_event(
                 Info(
-                    handle=[HandleProgram(name="ha_assist", description="HA Assist AI Logic")]
-                ).event()
+                    handle=[HandleProgram(
+                        name="ha_assist",
+                        description="HA Assist AI Logic",
+                        attribution=Attribution(
+                            name="HA Assist",
+                            url="https://github.com/mpralle/ha_assist",
+                        ),
+                        installed=True,
+                        version="0.1.3",
+                        languages=["en"],
+                    )]
+            ).event()
             )
             return True
 
