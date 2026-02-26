@@ -123,7 +123,7 @@ from wyoming.info import Describe, Info, HandleProgram
 from wyoming.asr import Transcript
 from wyoming.intent import Recognize
 from wyoming.handle import Handled
-from wyoming.server import AsyncEventHandler, AsyncServer
+from wyoming.server import AsyncEventHandler, AsyncTcpServer
 
 
 class AssistEventHandler(AsyncEventHandler):
@@ -163,7 +163,7 @@ class AssistEventHandler(AsyncEventHandler):
 async def _run_server(host: str, port: int) -> None:
     """Start the Wyoming server."""
     logger.info("Starting Wyoming server on %s:%s", host, port)
-    server = AsyncServer(host, port)
+    server = AsyncTcpServer(host, port)
     await server.run(AssistEventHandler)
 
 
