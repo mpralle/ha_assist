@@ -18,11 +18,16 @@ from steps import TaskExtractor, EntitySelector, Executor, Summary
 logger = logging.getLogger(__name__)
 
 # ── HA connection settings ───────────────────────────────────────────────────
-# Inside an add-on the Supervisor injects SUPERVISOR_TOKEN automatically.
-# For local development, export HA_URL and HA_TOKEN instead.
 _SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN")
-_HA_URL = os.environ.get("HA_URL", "http://supervisor/core/api")
-_HA_TOKEN = os.environ.get("HA_TOKEN", _SUPERVISOR_TOKEN or "")
+
+if _SUPERVISOR_TOKEN:
+    # Prefer internal supervisor token access if running as an Add-on
+    _HA_URL = "http://supervisor/core/api"
+    _HA_TOKEN = _SUPERVISOR_TOKEN
+else:
+    # Fallback for local testing
+    _HA_URL = os.environ.get("HA_URL", "")
+    _HA_TOKEN = os.environ.get("HA_TOKEN", "")
 
 
 def _get_client() -> Client:
@@ -111,15 +116,78 @@ def run_pipeline(user_input: str, ha_context: Dict[str, Any]) -> Any:
     return result
 
 
+import argparse
+import asyncio
+from wyoming.event import Event
+from wyoming.info import Describe, Info, HandleProgram
+from wyoming.asr import Transcript
+from wyoming.intent import Recognize
+from wyoming.handle import Handled
+from wyoming.server import AsyncEventHandler, AsyncServer
+
+
+class AssistEventHandler(AsyncEventHandler):
+    """Event handler for the HA Assist Wyoming protocol."""
+
+    async def handle_event(self, event: Event) -> bool:
+        if Describe.is_type(event.type):
+            await self.write_event(
+                Info(
+                    handle=[HandleProgram(name="ha_assist", description="HA Assist AI Logic")]
+                ).event()
+            )
+            return True
+
+        if Transcript.is_type(event.type) or Recognize.is_type(event.type):
+            if Transcript.is_type(event.type):
+                message = Transcript.from_event(event).text.strip()
+            else:
+                message = Recognize.from_event(event).text.strip()
+
+            if message:
+                logger.info("Received text: %s", message)
+                # Run the pipeline in a separate thread so we don't block the async loop
+                loop = asyncio.get_running_loop()
+                ha_context = await loop.run_in_executor(None, get_ha_context)
+                result = await loop.run_in_executor(None, run_pipeline, message, ha_context)
+                
+                # Extract the message returned by the summary step
+                response_text = result.get("message", "I'm sorry, an error occurred in the pipeline.")
+                
+                await self.write_event(Handled(text=response_text).event())
+            return True
+
+        return True
+
+
+async def _run_server(host: str, port: int) -> None:
+    """Start the Wyoming server."""
+    logger.info("Starting Wyoming server on %s:%s", host, port)
+    server = AsyncServer(host, port)
+    await server.run(AssistEventHandler)
+
+
 def main() -> None:
-    """Read messages from stdin, one per line, and run the pipeline."""
-    for line in sys.stdin:
-        message = line.strip()
-        if not message:
-            continue
-        ha_context = get_ha_context()
-        result = run_pipeline(message, ha_context)
-        print(json.dumps(result, ensure_ascii=False), flush=True)
+    """Main entry point for starting the Wyoming server or CLI fallback."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host", default="0.0.0.0", help="Host to listen on")
+    parser.add_argument("--port", type=int, default=10400, help="Port to listen on")
+    parser.add_argument("--cli", action="store_true", help="Run in CLI mode (stdin/stdout)")
+    args = parser.parse_args()
+
+    if args.cli:
+        for line in sys.stdin:
+            message = line.strip()
+            if not message:
+                continue
+            ha_context = get_ha_context()
+            result = run_pipeline(message, ha_context)
+            print(json.dumps(result, ensure_ascii=False), flush=True)
+    else:
+        try:
+            asyncio.run(_run_server(args.host, args.port))
+        except KeyboardInterrupt:
+            pass
 
 
 if __name__ == "__main__":

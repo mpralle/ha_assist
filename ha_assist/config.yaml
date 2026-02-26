@@ -1,6 +1,6 @@
 name: "HA Assist"
 description: "A custom assistant add-on for Home Assistant"
-version: "0.1.1"
+version: "0.1.2"
 slug: "ha_assist"
 url: "https://github.com/mpralle/ha_assist"
 arch:
@@ -20,3 +20,7 @@ options:
   log_level: info
 schema:
   log_level: list(trace|debug|info|notice|warning|error|fatal)?
+ports:
+  10400/tcp: 10400
+discovery:
+  - wyoming

@@ -14,6 +14,7 @@ from assist import get_ha_context
 from steps import TaskExtractor, EntitySelector, Executor, Summary
 
 SLEEP_TIME = 2
+USER_INPUT = "turn on the schreibtischlampe."
 
 start_time = time.time()
 sleep_time = 0
@@ -33,7 +34,7 @@ print(f"Service domains: {len(services)}")
 print()
 
 # ── 2. Run Step 1: TaskExtractor ─────────────────────────────────────────────
-USER_INPUT = "turn off the schreibtischlampe."
+
 
 print("=" * 60)
 print(f"Step 1 — User input: {USER_INPUT}")
