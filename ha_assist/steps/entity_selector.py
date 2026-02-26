@@ -99,7 +99,7 @@ def _flatten_actions(
                     counter += 1
 
             # Recurse into nested branches
-            for key in ("then", "else", "steps"):
+            for key in ("then", "else"):
                 nested = action.get(key)
                 if isinstance(nested, list):
                     _walk(nested)
@@ -130,7 +130,7 @@ def _merge_resolved(
                 check["entity_id"] = r.get("entity_id", "unknown")
 
         # Recurse
-        for key in ("then", "else", "steps"):
+        for key in ("then", "else"):
             nested = action.get(key)
             if isinstance(nested, list):
                 _merge_resolved(nested, resolved_map)

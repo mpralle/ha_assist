@@ -155,17 +155,7 @@ Rules:
   - "value": the expected value (string or number). Use strings for state comparisons ("on", "off", "open", "closed", "locked", "unlocked") and numbers for numeric comparisons.
 - "then" and "else" must be arrays of task objects (can be empty).
 
-3) Sequence tasks (ordered steps / dependencies)
-Use when order matters (e.g., "then", "after that", "once that's done"):
-{{
-  "type": "sequence",
-  "steps": [ ...task objects... ]
-}}
-
-Rules:
-- "steps" must be an ordered array of task objects.
-
-4) Monitor / Wait-Until tasks (state-driven continuation)
+3) Monitor / Wait-Until tasks (state-driven continuation)
 Use when the user wants to keep waiting/monitoring until a condition becomes true, then run follow-up tasks (e.g., "until humidity drops below 55%, then turn it off", "when it reaches 20°C, stop heating", "wait until the door is closed, then lock it").
 
 Format:
@@ -191,10 +181,8 @@ GUIDELINES
   - "Remind me to buy milk" => {{ "type": "list", "task": "Add milk to shopping list" }}
 - Handle ambiguity with logic:
   - If a task requires checking a state before acting (e.g., "Lock the door if it's open"), use a "condition".
-- Enforce order:
-  - Use "sequence" when the user indicates ordering or dependencies.
 - Use monitor for "until/when reached":
-  - Phrases like "until X", "when X is reached", "once it drops below", "keep it running until" should be represented with a "monitor" task, optionally inside a "sequence".
+  - Phrases like "until X", "when X is reached", "once it drops below", "keep it running until" should be represented with a "monitor" task.
 - Condition operator direction:
   - "if X is off" means operator "==" and value "off" (check if the state EQUALS the mentioned value).
   - "if X is NOT off" means operator "!=" and value "off".
@@ -232,51 +220,26 @@ Output:
   }}
 ] }}
 
-Input: "Check the front door lock. If it's unlocked, lock it, then remove 'check door' from my chores."
-Output:
-{{ "actions": [
-  {{
-    "type": "sequence",
-    "steps": [
-      {{
-        "type": "condition",
-        "check": {{ "type": "state", "task": "Get front door lock status" }},
-        "condition": {{ "attribute": "state", "operator": "==", "value": "unlocked" }},
-        "then": [
-          {{ "type": "device_control", "task": "Lock front door" }}
-        ],
-        "else": []
-      }},
-      {{ "type": "list", "task": "Remove 'check door' from chores list" }}
-    ]
-  }}
-] }}
-
 Input: "If the indoor humidity is above 60%, turn on the dehumidifier until it drops below 55%, then turn it off."
 Output:
 {{ "actions": [
   {{
-    "type": "sequence",
-    "steps": [
+    "type": "condition",
+    "check": {{ "type": "state", "task": "Get indoor humidity" }},
+    "condition": {{ "attribute": "humidity", "operator": ">", "value": 60 }},
+    "then": [
+      {{ "type": "device_control", "task": "Turn on dehumidifier" }},
       {{
-        "type": "condition",
+        "type": "monitor",
         "check": {{ "type": "state", "task": "Get indoor humidity" }},
-        "condition": {{ "attribute": "humidity", "operator": ">", "value": 60 }},
+        "condition": {{ "attribute": "humidity", "operator": "<", "value": 55 }},
         "then": [
-          {{ "type": "device_control", "task": "Turn on dehumidifier" }},
-          {{
-            "type": "monitor",
-            "check": {{ "type": "state", "task": "Get indoor humidity" }},
-            "condition": {{ "attribute": "humidity", "operator": "<", "value": 55 }},
-            "then": [
-              {{ "type": "device_control", "task": "Turn off dehumidifier" }}
-            ],
-            "else": []
-          }}
+          {{ "type": "device_control", "task": "Turn off dehumidifier" }}
         ],
         "else": []
       }}
-    ]
+    ],
+    "else": []
   }}
 ] }}
 

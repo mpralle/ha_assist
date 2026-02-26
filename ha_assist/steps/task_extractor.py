@@ -19,7 +19,6 @@ _TASK_OBJECT: Dict[str, Any] = {
         "condition": {"type": "object"},
         "then": {"type": "array"},
         "else": {"type": "array"},
-        "steps": {"type": "array"},
         "poll_seconds": {"type": "number"},
         "timeout_seconds": {"type": "number"},
     },

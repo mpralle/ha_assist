@@ -3,7 +3,6 @@
 Handles:
   - device_control  → call an HA service
   - condition       → fetch entity state, evaluate, run then/else branch
-  - sequence        → execute steps in order
   - monitor         → (placeholder) not yet implemented
   - other types     → pass through unchanged
 """
@@ -137,9 +136,6 @@ def _execute_actions(actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         elif action_type == "condition":
             results.append(_execute_condition(action))
 
-        elif action_type == "sequence":
-            results.append(_execute_sequence(action))
-
         else:
             # Pass through unknown types unchanged
             results.append(action)
@@ -219,19 +215,12 @@ def _execute_condition(action: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _execute_sequence(action: Dict[str, Any]) -> Dict[str, Any]:
-    """Execute sequence steps in order."""
-    steps = action.get("steps", [])
-    step_results = _execute_actions(steps)
-    return {**action, "result": {"steps": step_results}}
-
-
 # ── Public API ───────────────────────────────────────────────────────────────
 
 class Executor:
     """Step 3 of the agent pipeline.
 
-    Evaluates conditions, calls HA services, and handles sequences.
+    Evaluates conditions and calls HA services.
     """
 
     def run(self, previous_output: Any, ha_context: Dict[str, Any]) -> Any:
