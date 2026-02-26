@@ -9,36 +9,28 @@ Handles:
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 from typing import Any, Dict, List
+import asyncio
 
-import requests as http_requests
+from homeassistant.core import HomeAssistant
 
 logger = logging.getLogger(__name__)
 
-_HA_URL = os.environ.get("HA_URL", "http://supervisor/core/api")
-_SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN")
-_HA_TOKEN = os.environ.get("HA_TOKEN", _SUPERVISOR_TOKEN or "")
-
-_HEADERS = {
-    "Authorization": f"Bearer {_HA_TOKEN}",
-    "Content-Type": "application/json",
-}
-
-
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-def _call_service(domain: str, service: str, entity_id: str) -> Dict[str, Any]:
-    """Call a Home Assistant service via the REST API."""
+def _call_service(domain: str, service: str, entity_id: str, hass: HomeAssistant) -> Dict[str, Any]:
+    """Call a Home Assistant service."""
     full_service = f"{domain}.{service}"
-    url = f"{_HA_URL.rstrip('/')}/services/{domain}/{service}"
     payload: Dict[str, Any] = {"entity_id": entity_id}
 
     try:
-        resp = http_requests.post(url, headers=_HEADERS, json=payload, timeout=30)
-        resp.raise_for_status()
+        # Run threadsafe from our background thread context:
+        future = asyncio.run_coroutine_threadsafe(
+            hass.services.async_call(domain, service, payload, blocking=True),
+            hass.loop
+        )
+        future.result(timeout=30)
         logger.info("Service %s called on %s – OK", full_service, entity_id)
         return {"success": True, "entity_id": entity_id, "service": full_service}
     except Exception as exc:
@@ -51,17 +43,17 @@ def _call_service(domain: str, service: str, entity_id: str) -> Dict[str, Any]:
         }
 
 
-def _fetch_entity_state(entity_id: str) -> Dict[str, Any]:
-    """Fetch the current state of an entity via the REST API.
-
-    Returns the full state dict (keys: entity_id, state, attributes, …).
-    On error returns a minimal dict with state "unavailable".
-    """
-    url = f"{_HA_URL.rstrip('/')}/states/{entity_id}"
+def _fetch_entity_state(entity_id: str, hass: HomeAssistant) -> Dict[str, Any]:
+    """Fetch the current state of an entity."""
     try:
-        resp = http_requests.get(url, headers=_HEADERS, timeout=30)
-        resp.raise_for_status()
-        return resp.json()
+        state_obj = hass.states.get(entity_id)
+        if not state_obj:
+            return {"entity_id": entity_id, "state": "unavailable", "attributes": {}}
+        return {
+            "entity_id": entity_id,
+            "state": state_obj.state,
+            "attributes": dict(state_obj.attributes)
+        }
     except Exception as exc:
         logger.error("Failed to fetch state for %s: %s", entity_id, exc)
         return {"entity_id": entity_id, "state": "unavailable", "attributes": {}}
@@ -123,7 +115,7 @@ def _evaluate_condition(condition: Dict[str, Any], state_data: Dict[str, Any]) -
 
 # ── Recursive action executor ────────────────────────────────────────────────
 
-def _execute_actions(actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _execute_actions(actions: List[Dict[str, Any]], hass: HomeAssistant) -> List[Dict[str, Any]]:
     """Recursively execute a list of actions and return results."""
     results: List[Dict[str, Any]] = []
 
@@ -131,10 +123,10 @@ def _execute_actions(actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         action_type = action.get("type")
 
         if action_type == "device_control":
-            results.append(_execute_device_control(action))
+            results.append(_execute_device_control(action, hass))
 
         elif action_type == "condition":
-            results.append(_execute_condition(action))
+            results.append(_execute_condition(action, hass))
 
         else:
             # Pass through unknown types unchanged
@@ -143,7 +135,7 @@ def _execute_actions(actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return results
 
 
-def _execute_device_control(action: Dict[str, Any]) -> Dict[str, Any]:
+def _execute_device_control(action: Dict[str, Any], hass: HomeAssistant) -> Dict[str, Any]:
     """Execute a device_control action."""
     service_full = action.get("service", "")
     entity_id = action.get("entity_id", "")
@@ -160,11 +152,11 @@ def _execute_device_control(action: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     domain, service_name = service_full.split(".", 1)
-    result = _call_service(domain, service_name, entity_id)
+    result = _call_service(domain, service_name, entity_id, hass)
     return {**action, "result": result}
 
 
-def _execute_condition(action: Dict[str, Any]) -> Dict[str, Any]:
+def _execute_condition(action: Dict[str, Any], hass: HomeAssistant) -> Dict[str, Any]:
     """Evaluate a condition and execute the appropriate branch."""
     check = action.get("check", {})
     condition = action.get("condition", {})
@@ -182,7 +174,7 @@ def _execute_condition(action: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     # Fetch current state
-    state_data = _fetch_entity_state(entity_id)
+    state_data = _fetch_entity_state(entity_id, hass)
     actual_state = state_data.get("state", "unavailable")
 
     # Evaluate
@@ -200,7 +192,7 @@ def _execute_condition(action: Dict[str, Any]) -> Dict[str, Any]:
     # Execute the appropriate branch
     branch_name = "then" if condition_met else "else"
     branch = then_branch if condition_met else else_branch
-    branch_results = _execute_actions(branch)
+    branch_results = _execute_actions(branch, hass)
 
     return {
         **action,
@@ -225,5 +217,8 @@ class Executor:
 
     def run(self, previous_output: Any, ha_context: Dict[str, Any]) -> Any:
         actions: List[Dict[str, Any]] = previous_output.get("actions", [])
-        results = _execute_actions(actions)
+        hass = ha_context.get("hass")
+        if not hass:
+            raise RuntimeError("HA context missing 'hass' object.")
+        results = _execute_actions(actions, hass)
         return {"actions": results}

@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any, Dict
 
-from jimmy_connection import sendMsg, parse_json_with_repair
-from prompts.summary import build_prompt, _flatten_results
+from ..jimmy_connection import sendMsg, parse_json_with_repair
+from ..prompts.summary import build_prompt, _flatten_results
 
 
 SCHEMA: Dict[str, Any] = {

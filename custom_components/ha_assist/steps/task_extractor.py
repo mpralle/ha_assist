@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from jimmy_connection import sendMsg
-from prompts.task_extractor import build_prompt
+from ..jimmy_connection import sendMsg
+from ..prompts.task_extractor import build_prompt
 
 
 # Recursive schema: task objects can nest inside condition/sequence/monitor.

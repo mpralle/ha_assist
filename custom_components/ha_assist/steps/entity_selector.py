@@ -15,8 +15,8 @@ import copy
 import json
 from typing import Any, Dict, List, Tuple
 
-from jimmy_connection import sendMsg
-from prompts.entity_selector import build_prompt
+from ..jimmy_connection import sendMsg
+from ..prompts.entity_selector import build_prompt
 
 
 # ── JSON-Schema for the LLM response ────────────────────────────────────────

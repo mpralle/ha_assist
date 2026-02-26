@@ -1,34 +1,28 @@
 # HA Assist
 
-A custom Home Assistant add-on repository for building an assistant.
+A custom Home Assistant integration for building a local LLM-powered assistant without relying on an external Wyoming server.
 
-## Add-ons
+## Installation via HACS
 
-| Add-on                              | Description                                          |
-| ----------------------------------- | ---------------------------------------------------- |
-| [HA Assist](./ha_assist)            | A custom assistant add-on for Home Assistant          |
+1. Go to **HACS** in your Home Assistant installation.
+2. Select **Integrations**.
+3. Click the three dots in the top right corner and select **Custom repositories**.
+4. Add the URL to this repository and select **Integration** as the category.
+5. Search for "HA Assist" in HACS and install it.
+6. Restart Home Assistant.
+7. Go to **Settings** -> **Devices & Services** -> **Add Integration** and search for "HA Assist" to configure it.
 
-## Installation
-
-1. In Home Assistant go to **Settings → Add-ons → Add-on Store**.
-2. Click the **⋮** menu (top-right) → **Repositories**.
-3. Paste the URL of this repository and click **Add**.
-4. Refresh the page — *HA Assist* will appear in the store.
-5. Click it, then **Install**.
-
-## Development
-
-The add-on lives in the `ha_assist/` directory. Key files:
+## Directory Structure
 
 ```
 ha_assist/
-├── config.yaml       # Add-on metadata & options
-├── Dockerfile         # Container build instructions
-├── build.yaml         # Base image per architecture
-├── run.sh             # Entrypoint script
-├── DOCS.md            # User-facing documentation
-├── CHANGELOG.md       # Version history
-├── translations/
-│   └── en.yaml        # English UI strings
-└── rootfs/            # Files overlaid into the container
+├── custom_components/
+│   └── ha_assist/          # The HACS integration folder
+│       ├── __init__.py     # Integration setup
+│       ├── manifest.json   # Integration metadata
+│       ├── config_flow.py  # UI Configuration
+│       ├── conversation.py # Conversation Agent entry point
+│       ├── pipeline.py     # Pipeline execution 
+│       └── steps/          # Logic for task parsing, entity matching, executing, summarizing
+└── hacs.json               # HACS repository metadata
 ```

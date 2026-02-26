@@ -1,6 +1,0 @@
-requests
-jsonschema
-json-repair
-homeassistant-api
-python-dotenv
-wyoming
