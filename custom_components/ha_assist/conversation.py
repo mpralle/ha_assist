@@ -39,9 +39,7 @@ class HAAssistAgent(conversation.AbstractConversationAgent):
             else:
                 response_text = str(result)
                 
-            intent_response = user_input.context.intent_response
-            if intent_response is None:
-                intent_response = intent.IntentResponse(language=user_input.language)
+            intent_response = intent.IntentResponse(language=user_input.language)
                 
             intent_response.async_set_speech(response_text)
             
@@ -52,9 +50,7 @@ class HAAssistAgent(conversation.AbstractConversationAgent):
         except Exception as err:
             _LOGGER.exception("Error processing in HA Assist Agent")
             
-            intent_response = user_input.context.intent_response
-            if intent_response is None:
-                intent_response = intent.IntentResponse(language=user_input.language)
+            intent_response = intent.IntentResponse(language=user_input.language)
                 
             intent_response.async_set_error(
                 intent.IntentResponseErrorCode.UNKNOWN,
