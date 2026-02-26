@@ -9,38 +9,32 @@ from .pipeline import async_run_pipeline, get_ha_context
 _LOGGER = logging.getLogger(__name__)
 
 
-def get_filtered_ha_context(hass: HomeAssistant, options: dict) -> dict:
-    """Return HA context filtered to only exposed entities and their allowed services."""
-    exposed: dict = options.get("exposed", {})
+from homeassistant.components.homeassistant import async_should_expose
 
-    # Nothing configured yet — fall back to full context
-    if not exposed:
-        return get_ha_context(hass)
-
+def get_filtered_ha_context(hass: HomeAssistant) -> dict:
+    """Return only entities exposed to the conversation assistant in HA settings."""
     entity_details = [
         {
             "entity_id": state.entity_id,
             "domain": state.domain,
             "state": state.state,
             "friendly_name": state.attributes.get("friendly_name", state.entity_id),
-            "allowed_services": exposed[state.entity_id]["services"],
         }
         for state in hass.states.async_all()
-        if state.entity_id in exposed
+        if async_should_expose(hass, "conversation", state.entity_id)
     ]
 
-    # Only expose the specific services the user allowed, per domain
-    services: dict = {}
-    for entity_id, config in exposed.items():
-        domain = entity_id.split(".")[0]
-        if domain not in services:
-            services[domain] = []
-        for svc in config["services"]:
-            if svc not in services[domain]:
-                services[domain].append(svc)
+    # Build services dict from exposed entity domains only
+    exposed_domains = {e["domain"] for e in entity_details}
+    all_services = hass.services.async_services()
+    services = {
+        domain: list(svcs.keys())
+        for domain, svcs in all_services.items()
+        if domain in exposed_domains
+    }
 
     return {
-        "entities": list(exposed.keys()),
+        "entities": [e["entity_id"] for e in entity_details],
         "entity_details": entity_details,
         "services": services,
     }
@@ -61,7 +55,7 @@ class HAAssistAgent(conversation.AbstractConversationAgent):
         """Process a sentence."""
         text = user_input.text
         try:
-            ha_context = get_filtered_ha_context(self.hass, self.entry.options)
+            ha_context = get_filtered_ha_context(self.hass)
             result = await async_run_pipeline(text, ha_context, self.hass)
 
             response_text = result["message"] if isinstance(result, dict) and "message" in result else str(result)

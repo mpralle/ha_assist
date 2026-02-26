@@ -23,6 +23,8 @@ import os
 from unittest.mock import MagicMock
 import sys
 
+
+
 class AttrDict(dict):
     def __init__(self, *args, **kwargs):
         super(AttrDict, self).__init__(*args, **kwargs)
@@ -38,6 +40,7 @@ sys.modules['homeassistant.components'] = mock_ha.components
 sys.modules['homeassistant.components.conversation'] = mock_ha.components.conversation
 sys.modules['homeassistant.helpers'] = mock_ha.helpers
 sys.modules['homeassistant.helpers.intent'] = mock_ha.helpers.intent
+sys.modules['homeassistant.components.homeassistant'] = MagicMock()
 sys.modules['voluptuous'] = MagicMock()
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -68,7 +71,7 @@ _HEADERS = {
 }
 
 SLEEP_TIME = 2
-USER_INPUT = "open the curtains."
+USER_INPUT = "turn off the Schreibtischlampe."
 
 start_time = time.time()
 sleep_time = 0
@@ -88,68 +91,117 @@ def _fetch_services_rest():
     return services
 
 
-def _fetch_entry_options() -> dict:
-    """Fetch the ha_assist config entry options from the live HA instance."""
-    url = f"{_HA_URL.rstrip('/')}/api/config/config_entries"
-    resp = requests.get(url, headers=_HEADERS, timeout=30)
-    resp.raise_for_status()
-    for entry in resp.json():
-        if entry.get("domain") == "ha_assist":
-            return entry.get("options", {})
-    print("WARNING: No ha_assist config entry found, using unfiltered context.")
-    return {}
+import asyncio
+import json
+import aiohttp
+import socket
+from urllib.parse import urlparse
+
+async def _fetch_exposed_entity_ids_ws() -> set[str] | None:
+    """Fetch entity IDs exposed to conversation assistant.
+    Returns None if fetch fails (caller falls back to all entities).
+    """
+    parsed = urlparse(_HA_URL)
+    resolved_ip = socket.gethostbyname(parsed.hostname)
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    ws_url = f"ws://{resolved_ip}:{port}/api/websocket"
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.ws_connect(ws_url) as ws:
+                await ws.receive_json()  # auth_required
+                await ws.send_json({"type": "auth", "access_token": _HA_TOKEN})
+                if (await ws.receive_json()).get("type") != "auth_ok":
+                    print("WARNING: WebSocket auth failed.")
+                    return None
+
+                # This returns per-entity exposure overrides + global defaults per domain
+                await ws.send_json({
+                    "id": 1,
+                    "type": "homeassistant/expose_entity/list"
+                })
+                result = await ws.receive_json()
+
+                if not result.get("success"):
+                    print(f"WARNING: expose_entity/list failed: {result}")
+                    return None
+
+                exposed = set()
+                for entity_id, config in result.get("result", {}).get("exposed_entities", {}).items():
+                    if config.get("conversation") is True:
+                        exposed.add(entity_id)
+
+                print(f"Found {len(exposed)} entities exposed to conversation assistant")
+                return exposed if exposed else None
+
+    except Exception as e:
+        print(f"WARNING: Could not fetch exposed entities: {e}")
+        return None
 
 
-def get_real_ha_context():
-    """Fetch HA state via REST, filtered by live entry options."""
+def get_real_ha_context() -> dict:
+    exposed = asyncio.run(_fetch_exposed_entity_ids_ws())
+
     url = f"{_HA_URL.rstrip('/')}/api/states"
     resp = requests.get(url, headers=_HEADERS, timeout=30)
     resp.raise_for_status()
+    all_states = resp.json()
 
-    options = _fetch_entry_options()
-    exposed: dict = options.get("exposed", {})
+    if exposed is None:
+        print("Falling back to all entities.")
 
-    all_entity_details = [
+    entity_details = [
         {
             "entity_id": s["entity_id"],
             "domain": s["entity_id"].split(".")[0],
             "state": s["state"],
             "friendly_name": s.get("attributes", {}).get("friendly_name", s["entity_id"]),
         }
-        for s in resp.json()
+        for s in all_states
+        if exposed is None or s["entity_id"] in exposed
     ]
 
-    if not exposed:
-        # No filter configured — use everything
-        services = _fetch_services_rest()
-        return {
-            "hass": "DUMMY_HASS",
-            "entities": [e["entity_id"] for e in all_entity_details],
-            "entity_details": all_entity_details,
-            "services": services,
-        }
+    exposed_domains = {e["domain"] for e in entity_details}
+    all_services = _fetch_services_rest()
+    services = {k: v for k, v in all_services.items() if k in exposed_domains}
 
-    # Apply the same filter logic as get_filtered_ha_context in conversation.py
+    print(f"Context: {len(entity_details)} entities across {len(services)} service domains")
+    return {
+        "hass": "DUMMY_HASS",
+        "entities": [e["entity_id"] for e in entity_details],
+        "entity_details": entity_details,
+        "services": services,
+    }
+
+
+def get_real_ha_context() -> dict:
+    exposed = asyncio.run(_fetch_exposed_entity_ids_ws())
+
+    url = f"{_HA_URL.rstrip('/')}/api/states"
+    resp = requests.get(url, headers=_HEADERS, timeout=30)
+    resp.raise_for_status()
+
+    all_states = resp.json()
+
+    # If nothing explicitly exposed, fall back to all entities
     entity_details = [
-        {**e, "allowed_services": exposed[e["entity_id"]]["services"]}
-        for e in all_entity_details
-        if e["entity_id"] in exposed
+        {
+            "entity_id": s["entity_id"],
+            "domain": s["entity_id"].split(".")[0],
+            "state": s["state"],
+            "friendly_name": s.get("attributes", {}).get("friendly_name", s["entity_id"]),
+        }
+        for s in all_states
+        if not exposed or s["entity_id"] in exposed
     ]
 
-    services: dict = {}
-    for entity_id, config in exposed.items():
-        domain = entity_id.split(".")[0]
-        if domain not in services:
-            services[domain] = []
-        for svc in config["services"]:
-            if svc not in services[domain]:
-                services[domain].append(svc)
-
-    print(f"Loaded options from HA: {len(exposed)} exposed entities")
+    exposed_domains = {e["domain"] for e in entity_details}
+    all_services = _fetch_services_rest()
+    services = {k: v for k, v in all_services.items() if k in exposed_domains}
 
     return {
         "hass": "DUMMY_HASS",
-        "entities": list(exposed.keys()),
+        "entities": [e["entity_id"] for e in entity_details],
         "entity_details": entity_details,
         "services": services,
     }
