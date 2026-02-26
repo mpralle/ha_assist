@@ -68,7 +68,7 @@ _HEADERS = {
 }
 
 SLEEP_TIME = 2
-USER_INPUT = "turn off the schreibtischlampe."
+USER_INPUT = "open the curtains."
 
 start_time = time.time()
 sleep_time = 0
