@@ -71,7 +71,7 @@ async def _async_execute_actions(actions: List[Dict[str, Any]], hass: HomeAssist
     for action in actions:
         action_type = action.get("type")
 
-        if action_type == "device_control":
+        if action_type in ("device_control", "list"):
             results.append(await _async_execute_device_control(action, hass))
 
         elif action_type == "condition":

@@ -76,9 +76,9 @@ SLEEP_TIME = 0.1
 
 # ── Choose test mode ────────────────────────────────────────────────────────
 # Set to True to test monitor functionality, False for standard commands
-TEST_MONITOR = True
+TEST_MONITOR = False
 
-USER_INPUT_STANDARD = "if there are clouds outside, open the curtains."
+USER_INPUT_STANDARD = "Add Milk to my Einkaufsliste"
 USER_INPUT_MONITOR = "wait until its after 1:16 and open the curtains."
 USER_INPUT = USER_INPUT_MONITOR if TEST_MONITOR else USER_INPUT_STANDARD
 

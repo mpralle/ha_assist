@@ -12,7 +12,7 @@ CONTROLLABLE_DOMAINS: Set[str] = {
     "light", "switch", "lock", "cover", "climate", "fan",
     "media_player", "vacuum", "humidifier", "alarm_control_panel",
     "scene", "script", "automation", "input_boolean", "input_number",
-    "input_select", "button",
+    "input_select", "button", "todo",
 }
 
 STATE_DOMAINS: Set[str] = {
@@ -108,14 +108,14 @@ You are an Entity Selector for a Home Assistant smart home system.
 
 INPUT
 You receive a JSON object with an "items" array.
-Each item has an "id" (number), "type" ("device_control" or "state"), and "task" (description).
+Each item has an "id" (number), "type" ("device_control", "state", or "list"), and "task" (description).
 Some "state" items also have a "condition_value" — the value used in a condition check. You must correct it to match the entity's actual state format.
 
 YOUR JOB
 For each item, resolve:
 1. "entity_id": the exact Home Assistant entity_id that matches the task
-2. "service": the exact Home Assistant service to call (only for "device_control" items; omit for "state" items)
-3. "service_data": a JSON object with the required parameters for the service, extracted from the task description (only for "device_control" items that need parameters; omit if no parameters needed)
+2. "service": the exact Home Assistant service to call (for "device_control" and "list" items; omit for "state" items)
+3. "service_data": a JSON object with the required parameters for the service, extracted from the task description (omit if no parameters needed)
 
 OUTPUT FORMAT (STRICT)
 Return a JSON object:
@@ -124,7 +124,8 @@ Return a JSON object:
   {{ "id": 1, "entity_id": "light.kitchen", "service": "light.turn_on", "service_data": {{ "brightness_pct": 80 }} }},
   {{ "id": 2, "entity_id": "light.bedroom", "service": "light.turn_off" }},
   {{ "id": 3, "entity_id": "sensor.temperature" }},
-  {{ "id": 4, "entity_id": "sun.sun", "condition_value": "below_horizon" }}
+  {{ "id": 4, "entity_id": "sun.sun", "condition_value": "below_horizon" }},
+  {{ "id": 5, "entity_id": "todo.groceries", "service": "todo.add_item", "service_data": {{ "item": "Coffee" }} }}
 ] }}
 
 Rules:

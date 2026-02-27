@@ -70,11 +70,11 @@ def _flatten_actions(
         for action in action_list:
             action_type = action.get("type")
 
-            if action_type == "device_control":
+            if action_type in ("device_control", "list"):
                 action["_resolve_id"] = counter
                 items.append({
                     "id": counter,
-                    "type": "device_control",
+                    "type": action_type,
                     "task": action.get("task", ""),
                 })
                 counter += 1

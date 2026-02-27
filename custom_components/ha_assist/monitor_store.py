@@ -37,6 +37,7 @@ class MonitorStore:
         self._fetch_state = fetch_state_fn
         self._execute_actions = execute_actions_fn
         self._hass = hass
+        self._on_change_callbacks: List[Callable[[], None]] = []
 
     # ── Persistence ──────────────────────────────────────────────────────
 
@@ -78,6 +79,7 @@ class MonitorStore:
         }
         self._monitors[mid] = entry
         self._save()
+        self._fire_on_change()
         logger.info("Monitor %s added (entity=%s)", mid, entry["check"].get("entity_id"))
         return mid
 
@@ -85,6 +87,7 @@ class MonitorStore:
         """Remove a monitor by id."""
         self._monitors.pop(mid, None)
         self._save()
+        self._fire_on_change()
 
     def get_all(self) -> List[Dict[str, Any]]:
         """Return a copy of all active monitors."""
@@ -92,6 +95,18 @@ class MonitorStore:
 
     def is_empty(self) -> bool:
         return len(self._monitors) == 0
+
+    def add_on_change(self, callback: Callable[[], None]) -> None:
+        """Register a callback to be called when monitors change."""
+        self._on_change_callbacks.append(callback)
+
+    def _fire_on_change(self) -> None:
+        """Notify all registered listeners."""
+        for cb in self._on_change_callbacks:
+            try:
+                cb()
+            except Exception as exc:
+                logger.error("on_change callback failed: %s", exc)
 
     # ── Background polling ───────────────────────────────────────────────
 

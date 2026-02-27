@@ -28,11 +28,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     store.start()
     hass.data[DOMAIN]["monitor_store"] = store
 
+    # Forward platforms
+    await hass.config_entries.async_forward_entry_setups(entry, ["todo"])
+
     return True
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     async_unset_agent(hass, entry)
+
+    # Unload platforms
+    await hass.config_entries.async_unload_platforms(entry, ["todo"])
 
     # Stop monitor polling
     store = hass.data[DOMAIN].get("monitor_store")
