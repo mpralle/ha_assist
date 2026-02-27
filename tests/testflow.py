@@ -40,6 +40,7 @@ sys.modules['homeassistant.components'] = mock_ha.components
 sys.modules['homeassistant.components.conversation'] = mock_ha.components.conversation
 sys.modules['homeassistant.helpers'] = mock_ha.helpers
 sys.modules['homeassistant.helpers.intent'] = mock_ha.helpers.intent
+sys.modules['homeassistant.helpers.entity_registry'] = mock_ha.helpers.entity_registry
 sys.modules['homeassistant.components.homeassistant'] = MagicMock()
 sys.modules['voluptuous'] = MagicMock()
 
@@ -47,6 +48,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from custom_components.ha_assist.pipeline import async_run_pipeline
 from custom_components.ha_assist.steps import TaskExtractor, EntitySelector, Summary
+from custom_components.ha_assist.monitor_store import MonitorStore
 
 # The new Executor natively uses `hass.services.async_call`.
 # For testing locally without the HA Core runtime, we substitute
@@ -70,8 +72,19 @@ _HEADERS = {
     "Content-Type": "application/json",
 }
 
-SLEEP_TIME = 2
-USER_INPUT = "turn off the Schreibtischlampe."
+SLEEP_TIME = 0.1
+
+# ── Choose test mode ────────────────────────────────────────────────────────
+# Set to True to test monitor functionality, False for standard commands
+TEST_MONITOR = True
+
+USER_INPUT_STANDARD = "if there are clouds outside, open the curtains."
+USER_INPUT_MONITOR = "wait until its after 1:16 and open the curtains."
+USER_INPUT = USER_INPUT_MONITOR if TEST_MONITOR else USER_INPUT_STANDARD
+
+# ── Monitor polling settings ────────────────────────────────────────────────
+MONITOR_POLL_SECONDS = 10      # how often to check entity state
+MONITOR_MAX_WAIT = 300         # max seconds to wait for monitors to resolve
 
 start_time = time.time()
 sleep_time = 0
@@ -79,16 +92,35 @@ sleep_time = 0
 # ── Local REST Mocks & Context ──────────────────────────────────────────────
 
 def _fetch_services_rest():
+    """Fetch services and their field schemas from HA REST API."""
     url = f"{_HA_URL.rstrip('/')}/api/services"
     resp = requests.get(url, headers=_HEADERS, timeout=30)
     resp.raise_for_status()
     services = {}
+    service_fields = {}
     for domain_info in resp.json():
         domain = domain_info.get("domain", "")
         svc_map = domain_info.get("services", {})
         if domain and svc_map:
             services[domain] = list(svc_map.keys())
-    return services
+            for svc_name, svc_info in svc_map.items():
+                full_name = f"{domain}.{svc_name}"
+                fields = svc_info.get("fields", {})
+                if fields:
+                    fields_info = {}
+                    for fname, fval in fields.items():
+                        if isinstance(fval, dict):
+                            fields_info[fname] = {
+                                "description": fval.get("description", ""),
+                                "required": fval.get("required", False),
+                                "example": fval.get("example"),
+                            }
+                    if fields_info:
+                        service_fields[full_name] = {
+                            "description": svc_info.get("description", ""),
+                            "fields": fields_info,
+                        }
+    return services, service_fields
 
 
 import asyncio
@@ -97,14 +129,15 @@ import aiohttp
 import socket
 from urllib.parse import urlparse
 
-async def _fetch_exposed_entity_ids_ws() -> set[str] | None:
-    """Fetch entity IDs exposed to conversation assistant.
-    Returns None if fetch fails (caller falls back to all entities).
+async def _fetch_ws_data() -> tuple[set[str] | None, dict[str, list[str]]]:
+    """Fetch exposed entity IDs and entity aliases via WebSocket.
+    Returns (exposed_set_or_None, aliases_dict).
     """
     parsed = urlparse(_HA_URL)
     resolved_ip = socket.gethostbyname(parsed.hostname)
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
     ws_url = f"ws://{resolved_ip}:{port}/api/websocket"
+    aliases: dict[str, list[str]] = {}
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -113,69 +146,53 @@ async def _fetch_exposed_entity_ids_ws() -> set[str] | None:
                 await ws.send_json({"type": "auth", "access_token": _HA_TOKEN})
                 if (await ws.receive_json()).get("type") != "auth_ok":
                     print("WARNING: WebSocket auth failed.")
-                    return None
+                    return None, aliases
 
-                # This returns per-entity exposure overrides + global defaults per domain
+                # 1. Fetch exposed entities
                 await ws.send_json({
                     "id": 1,
                     "type": "homeassistant/expose_entity/list"
                 })
                 result = await ws.receive_json()
 
-                if not result.get("success"):
+                exposed = None
+                if result.get("success"):
+                    exposed = set()
+                    for entity_id, config in result.get("result", {}).get("exposed_entities", {}).items():
+                        if config.get("conversation") is True:
+                            exposed.add(entity_id)
+                    print(f"Found {len(exposed)} entities exposed to conversation assistant")
+                    if not exposed:
+                        exposed = None
+                else:
                     print(f"WARNING: expose_entity/list failed: {result}")
-                    return None
 
-                exposed = set()
-                for entity_id, config in result.get("result", {}).get("exposed_entities", {}).items():
-                    if config.get("conversation") is True:
-                        exposed.add(entity_id)
+                # 2. Fetch entity registry (for aliases)
+                await ws.send_json({
+                    "id": 2,
+                    "type": "config/entity_registry/list"
+                })
+                reg_result = await ws.receive_json()
 
-                print(f"Found {len(exposed)} entities exposed to conversation assistant")
-                return exposed if exposed else None
+                if reg_result.get("success"):
+                    for entry in reg_result.get("result", []):
+                        eid = entry.get("entity_id", "")
+                        entry_aliases = entry.get("aliases", [])
+                        if eid and entry_aliases:
+                            aliases[eid] = list(entry_aliases)
+                    print(f"Fetched aliases for {len(aliases)} entities")
+                else:
+                    print(f"WARNING: entity_registry/list failed: {reg_result}")
+
+                return exposed, aliases
 
     except Exception as e:
-        print(f"WARNING: Could not fetch exposed entities: {e}")
-        return None
+        print(f"WARNING: WebSocket fetch failed: {e}")
+        return None, aliases
 
 
 def get_real_ha_context() -> dict:
-    exposed = asyncio.run(_fetch_exposed_entity_ids_ws())
-
-    url = f"{_HA_URL.rstrip('/')}/api/states"
-    resp = requests.get(url, headers=_HEADERS, timeout=30)
-    resp.raise_for_status()
-    all_states = resp.json()
-
-    if exposed is None:
-        print("Falling back to all entities.")
-
-    entity_details = [
-        {
-            "entity_id": s["entity_id"],
-            "domain": s["entity_id"].split(".")[0],
-            "state": s["state"],
-            "friendly_name": s.get("attributes", {}).get("friendly_name", s["entity_id"]),
-        }
-        for s in all_states
-        if exposed is None or s["entity_id"] in exposed
-    ]
-
-    exposed_domains = {e["domain"] for e in entity_details}
-    all_services = _fetch_services_rest()
-    services = {k: v for k, v in all_services.items() if k in exposed_domains}
-
-    print(f"Context: {len(entity_details)} entities across {len(services)} service domains")
-    return {
-        "hass": "DUMMY_HASS",
-        "entities": [e["entity_id"] for e in entity_details],
-        "entity_details": entity_details,
-        "services": services,
-    }
-
-
-def get_real_ha_context() -> dict:
-    exposed = asyncio.run(_fetch_exposed_entity_ids_ws())
+    exposed, aliases = asyncio.run(_fetch_ws_data())
 
     url = f"{_HA_URL.rstrip('/')}/api/states"
     resp = requests.get(url, headers=_HEADERS, timeout=30)
@@ -184,40 +201,46 @@ def get_real_ha_context() -> dict:
     all_states = resp.json()
 
     # If nothing explicitly exposed, fall back to all entities
-    entity_details = [
-        {
-            "entity_id": s["entity_id"],
-            "domain": s["entity_id"].split(".")[0],
+    entity_details = []
+    for s in all_states:
+        eid = s["entity_id"]
+        if exposed and eid not in exposed:
+            continue
+        detail = {
+            "entity_id": eid,
+            "domain": eid.split(".")[0],
             "state": s["state"],
-            "friendly_name": s.get("attributes", {}).get("friendly_name", s["entity_id"]),
+            "friendly_name": s.get("attributes", {}).get("friendly_name", eid),
         }
-        for s in all_states
-        if not exposed or s["entity_id"] in exposed
-    ]
+        entity_aliases = aliases.get(eid, [])
+        if entity_aliases:
+            detail["aliases"] = entity_aliases
+        entity_details.append(detail)
 
     exposed_domains = {e["domain"] for e in entity_details}
-    all_services = _fetch_services_rest()
+    all_services, all_service_fields = _fetch_services_rest()
     services = {k: v for k, v in all_services.items() if k in exposed_domains}
+    service_fields = {k: v for k, v in all_service_fields.items()
+                      if k.split(".", 1)[0] in exposed_domains}
 
     return {
         "hass": "DUMMY_HASS",
         "entities": [e["entity_id"] for e in entity_details],
         "entity_details": entity_details,
         "services": services,
+        "service_fields": service_fields,
     }
 
 
-async def local_async_executor_call_service(domain, service, entity_id, hass):
+async def local_async_executor_call_service(domain, service, entity_id, hass, service_data=None):
     """Override Executor's native Service Call with REST for testing."""
     full_service = f"{domain}.{service}"
     url = f"{_HA_URL.rstrip('/')}/api/services/{domain}/{service}"
     payload = {"entity_id": entity_id}
+    if service_data:
+        payload.update(service_data)
 
     try:
-        # Since this is a test script, we can keep requests here, or use aiohttp. 
-        # Using requests is fine since it runs in the main thread of the test.
-        # But to be safe and avoid blocking the async event loop, we can wrap it.
-        # However, for this simple test, just doing it synchronously in the async function is acceptable.
         import asyncio
         loop = asyncio.get_event_loop()
         def _do_post():
@@ -226,7 +249,7 @@ async def local_async_executor_call_service(domain, service, entity_id, hass):
             return resp
             
         resp = await loop.run_in_executor(None, _do_post)
-        print(f"--> REST: Service {full_service} called on {entity_id} – OK")
+        print(f"--> REST: Service {full_service} called on {entity_id} – OK (data: {service_data})")
         return {"success": True, "entity_id": entity_id, "service": full_service}
     except Exception as exc:
         print(f"--> REST: Service {full_service} on {entity_id} failed: {exc}")
@@ -273,6 +296,19 @@ services = ha_context["services"]
 print(f"\nTotal entities: {len(entities)}")
 print(f"Service domains: {len(services)}")
 print()
+
+# ── Set up local MonitorStore for testing ────────────────────────────────────
+_STORE_FILE = os.path.join(os.path.dirname(__file__), "test_monitors.json")
+
+monitor_store = MonitorStore(
+    store_path=_STORE_FILE,
+    fetch_state_fn=local_executor_fetch_entity_state,
+    execute_actions_fn=executor._async_execute_actions,
+    hass="DUMMY_HASS",
+)
+
+# Make monitor store available to executor via ha_context
+ha_context["monitor_store"] = monitor_store
 
 async def main():
     global sleep_time
@@ -349,5 +385,56 @@ async def main():
     print(f"Effective execution time: {effective_time:.2f}s")
     print("=" * 60)
 
+    # ── 6. Monitor idle loop — wait for all monitors to resolve ──────────────────
+    
+    if TEST_MONITOR and not monitor_store.is_empty():
+        print("\n" + "=" * 60)
+        print(f"Monitor idle loop — polling every {MONITOR_POLL_SECONDS}s")
+        print(f"Active monitors: {len(monitor_store.get_all())}")
+        print(f"Max wait: {MONITOR_MAX_WAIT}s")
+        print("=" * 60)
+        
+        # Start the monitor store's background polling loop
+        monitor_store.start()
+        
+        wait_start = time.time()
+        while not monitor_store.is_empty():
+            elapsed = time.time() - wait_start
+            if elapsed > MONITOR_MAX_WAIT:
+                print(f"\n⏰ Max wait time ({MONITOR_MAX_WAIT}s) reached. "
+                      f"Remaining monitors: {len(monitor_store.get_all())}")
+                break
+            
+            remaining = monitor_store.get_all()
+            for m in remaining:
+                entity_id = m.get("check", {}).get("entity_id", "?")
+                cond = m.get("condition", {})
+                attr = cond.get('attribute', 'state')
+                current_state = local_executor_fetch_entity_state(entity_id, None)
+                if attr == "state":
+                    current_val = current_state.get("state", "?")
+                else:
+                    current_val = current_state.get("attributes", {}).get(attr, "?")
+                print(f"  ⏳ [{elapsed:.0f}s] Waiting: {entity_id}: "
+                      f"{current_val} {cond.get('operator','==')} "
+                      f"{cond.get('value','?')}")
+            
+            await asyncio.sleep(MONITOR_POLL_SECONDS)
+        
+        monitor_store.stop()
+        
+        if monitor_store.is_empty():
+            print("\n✅ All monitors resolved!")
+        
+        print(f"Monitor wait time: {time.time() - wait_start:.1f}s")
+    
+    elif TEST_MONITOR:
+        print("\nℹ️  No monitors were registered (task may not have produced a monitor action).")
+
+    # Clean up test store file
+    if os.path.exists(_STORE_FILE):
+        os.remove(_STORE_FILE)
+
 if __name__ == "__main__":
     asyncio.run(main())
+

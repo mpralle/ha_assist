@@ -138,7 +138,9 @@ Allowed "type" values:
 {allowed_types}
 
 2) Conditional tasks (If/Then logic)
-Use when an action depends on a state check, or the user says "if", "when", "unless":
+Use when the user wants to CHECK the current state and act on it RIGHT NOW.
+Trigger phrases: "if", "when", "unless", "in case".
+These all mean: check the state immediately and execute the appropriate branch.
 {{
   "type": "condition",
   "check": {{ "type": "state", "task": "..." }},
@@ -156,7 +158,9 @@ Rules:
 - "then" and "else" must be arrays of task objects (can be empty).
 
 3) Monitor / Wait-Until tasks (state-driven continuation)
-Use when the user wants to keep waiting/monitoring until a condition becomes true, then run follow-up tasks (e.g., "until humidity drops below 55%, then turn it off", "when it reaches 20°C, stop heating", "wait until the door is closed, then lock it").
+Use ONLY when the user explicitly wants to WAIT or KEEP POLLING until a future condition becomes true.
+Trigger phrases: "wait until", "until", "keep running until", "once it reaches", "once it drops below".
+Do NOT use monitor for "if", "when", or "unless" — those are conditions (immediate checks).
 
 Format:
 {{
@@ -181,8 +185,11 @@ GUIDELINES
   - "Remind me to buy milk" => {{ "type": "list", "task": "Add milk to shopping list" }}
 - Handle ambiguity with logic:
   - If a task requires checking a state before acting (e.g., "Lock the door if it's open"), use a "condition".
-- Use monitor for "until/when reached":
-  - Phrases like "until X", "when X is reached", "once it drops below", "keep it running until" should be represented with a "monitor" task.
+- Condition vs Monitor — KEY DISTINCTION:
+  - "if" / "when" / "unless" = CONDITION (check current state NOW, act immediately)
+  - "wait until" / "until" / "once it reaches" / "keep it running until" = MONITOR (poll repeatedly until future state)
+  - "When it is after 17, turn off the lamp" → CONDITION (check if it's currently past 17:00)
+  - "Wait until it is 17, then turn off the lamp" → MONITOR (poll until 17:00 is reached)
 - Condition operator direction:
   - "if X is off" means operator "==" and value "off" (check if the state EQUALS the mentioned value).
   - "if X is NOT off" means operator "!=" and value "off".

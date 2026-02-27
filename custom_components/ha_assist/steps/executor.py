@@ -3,7 +3,7 @@
 Handles:
   - device_control  → call an HA service
   - condition       → fetch entity state, evaluate, run then/else branch
-  - monitor         → (placeholder) not yet implemented
+  - monitor         → register in MonitorStore for background polling
   - other types     → pass through unchanged
 """
 
@@ -19,10 +19,12 @@ logger = logging.getLogger(__name__)
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-async def _async_call_service(domain: str, service: str, entity_id: str, hass: HomeAssistant) -> Dict[str, Any]:
+async def _async_call_service(domain: str, service: str, entity_id: str, hass: HomeAssistant, service_data: Dict[str, Any] | None = None) -> Dict[str, Any]:
     """Call a Home Assistant service incrementally using asyncio."""
     full_service = f"{domain}.{service}"
     payload: Dict[str, Any] = {"entity_id": entity_id}
+    if service_data:
+        payload.update(service_data)
 
     try:
         await hass.services.async_call(domain, service, payload, blocking=True)
@@ -54,58 +56,7 @@ def _fetch_entity_state(entity_id: str, hass: HomeAssistant) -> Dict[str, Any]:
         return {"entity_id": entity_id, "state": "unavailable", "attributes": {}}
 
 
-def _evaluate_condition(condition: Dict[str, Any], state_data: Dict[str, Any]) -> bool:
-    """Evaluate a structured condition against entity state data.
-
-    condition format:
-        {"attribute": "state", "operator": "==", "value": "off"}
-
-    For attribute "state", compares against the top-level state string.
-    For other attributes, looks inside state_data["attributes"].
-    """
-    attribute = condition.get("attribute", "state")
-    operator = condition.get("operator", "==")
-    expected = condition.get("value")
-
-    # Get the actual value from state data
-    if attribute == "state":
-        actual = state_data.get("state")
-    else:
-        actual = state_data.get("attributes", {}).get(attribute)
-
-    if actual is None:
-        logger.warning("Attribute %r not found in state data for %s",
-                        attribute, state_data.get("entity_id", "?"))
-        return False
-
-    # Try numeric comparison if possible
-    try:
-        actual_num = float(actual)
-        expected_num = float(expected)
-        comparisons = {
-            "==": actual_num == expected_num,
-            "!=": actual_num != expected_num,
-            ">":  actual_num > expected_num,
-            "<":  actual_num < expected_num,
-            ">=": actual_num >= expected_num,
-            "<=": actual_num <= expected_num,
-        }
-        if operator in comparisons:
-            return comparisons[operator]
-    except (TypeError, ValueError):
-        pass
-
-    # Fall back to string comparison
-    actual_str = str(actual).lower().strip()
-    expected_str = str(expected).lower().strip()
-
-    if operator == "==":
-        return actual_str == expected_str
-    elif operator == "!=":
-        return actual_str != expected_str
-    else:
-        logger.warning("Cannot compare %r %s %r as strings", actual, operator, expected)
-        return False
+from ..condition import evaluate_condition as _evaluate_condition
 
 
 # ── Recursive action executor ────────────────────────────────────────────────
@@ -113,7 +64,7 @@ def _evaluate_condition(condition: Dict[str, Any], state_data: Dict[str, Any]) -
 def _execute_actions(actions: List[Dict[str, Any]], hass: HomeAssistant) -> List[Dict[str, Any]]:
     pass # Replaced temporarily
     
-async def _async_execute_actions(actions: List[Dict[str, Any]], hass: HomeAssistant) -> List[Dict[str, Any]]:
+async def _async_execute_actions(actions: List[Dict[str, Any]], hass: HomeAssistant, ha_context: Dict[str, Any] | None = None) -> List[Dict[str, Any]]:
     """Recursively execute a list of actions and return results."""
     results: List[Dict[str, Any]] = []
 
@@ -125,6 +76,9 @@ async def _async_execute_actions(actions: List[Dict[str, Any]], hass: HomeAssist
 
         elif action_type == "condition":
             results.append(await _async_execute_condition(action, hass))
+
+        elif action_type == "monitor":
+            results.append(_execute_monitor(action, hass, ha_context))
 
         else:
             # Pass through unknown types unchanged
@@ -138,19 +92,37 @@ async def _async_execute_device_control(action: Dict[str, Any], hass: HomeAssist
     service_full = action.get("service", "")
     entity_id = action.get("entity_id", "")
 
-    if "." not in service_full or not entity_id:
+    if not entity_id:
         return {
             **action,
             "result": {
                 "success": False,
                 "entity_id": entity_id,
                 "service": service_full,
-                "error": "Missing or invalid service/entity_id",
+                "error": "Missing entity_id",
+            },
+        }
+
+    # If service is missing the domain prefix, infer it from entity_id
+    if service_full and "." not in service_full and "." in entity_id:
+        domain = entity_id.split(".", 1)[0]
+        service_full = f"{domain}.{service_full}"
+        logger.info("Inferred service domain: %s", service_full)
+
+    if "." not in service_full:
+        return {
+            **action,
+            "result": {
+                "success": False,
+                "entity_id": entity_id,
+                "service": service_full,
+                "error": "Missing or invalid service",
             },
         }
 
     domain, service_name = service_full.split(".", 1)
-    result = await _async_call_service(domain, service_name, entity_id, hass)
+    service_data = action.get("service_data")
+    result = await _async_call_service(domain, service_name, entity_id, hass, service_data)
     return {**action, "result": result}
 
 
@@ -205,6 +177,44 @@ async def _async_execute_condition(action: Dict[str, Any], hass: HomeAssistant) 
     }
 
 
+def _execute_monitor(action: Dict[str, Any], hass: HomeAssistant, ha_context: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    """Register a monitor task in the MonitorStore."""
+    store = None
+    if ha_context:
+        store = ha_context.get("monitor_store")
+
+    if store is None:
+        logger.warning("No MonitorStore available – cannot register monitor")
+        return {
+            **action,
+            "result": {
+                "monitor_created": False,
+                "error": "MonitorStore not available",
+            },
+        }
+
+    monitor_id = store.add_monitor(action)
+    entity_id = action.get("check", {}).get("entity_id", "unknown")
+    condition = action.get("condition", {})
+    poll_seconds = action.get("poll_seconds", 60)
+
+    desc = (
+        f"Monitoring {entity_id}: {condition.get('attribute', 'state')} "
+        f"{condition.get('operator', '==')} {condition.get('value')} "
+        f"(every {poll_seconds}s)"
+    )
+
+    logger.info("Monitor registered: %s – %s", monitor_id, desc)
+    return {
+        **action,
+        "result": {
+            "monitor_created": True,
+            "monitor_id": monitor_id,
+            "description": desc,
+        },
+    }
+
+
 # ── Public API ───────────────────────────────────────────────────────────────
 
 class Executor:
@@ -218,5 +228,5 @@ class Executor:
         hass = ha_context.get("hass")
         if not hass:
             raise RuntimeError("HA context missing 'hass' object.")
-        results = await _async_execute_actions(actions, hass)
+        results = await _async_execute_actions(actions, hass, ha_context)
         return {"actions": results}

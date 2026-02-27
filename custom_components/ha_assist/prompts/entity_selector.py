@@ -16,7 +16,7 @@ CONTROLLABLE_DOMAINS: Set[str] = {
 }
 
 STATE_DOMAINS: Set[str] = {
-    "sensor", "binary_sensor", "weather", "person", "device_tracker",
+    "sensor", "binary_sensor", "weather", "person", "device_tracker", "sun",
 }
 
 
@@ -44,10 +44,49 @@ def _build_entity_list(ha_context: Dict[str, Any]) -> str:
         if domain_services and domain in CONTROLLABLE_DOMAINS:
             lines.append(f"Available services: {', '.join(sorted(domain_services))}")
         for e in sorted(entities, key=lambda x: x["entity_id"]):
+            alias_str = ""
+            entity_aliases = e.get("aliases", [])
+            if entity_aliases:
+                alias_str = f", aliases: {', '.join(entity_aliases)}"
             lines.append(
                 f"- {e['entity_id']}  "
-                f"(name: \"{e['friendly_name']}\", state: {e['state']})"
+                f"(name: \"{e['friendly_name']}\"{alias_str}, state: {e['state']})"
             )
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def _build_service_params(ha_context: Dict[str, Any]) -> str:
+    """Build a formatted list of service parameters from service_fields."""
+    service_fields: Dict[str, Any] = ha_context.get("service_fields", {})
+    if not service_fields:
+        return ""
+
+    lines: List[str] = ["\nSERVICE PARAMETERS",
+                        "When selecting a service for a device_control item, also provide "
+                        "\"service_data\" with the required parameters extracted from the task.\n"]
+
+    for svc_name in sorted(service_fields.keys()):
+        svc_info = service_fields[svc_name]
+        fields = svc_info.get("fields", {})
+        if not fields:
+            continue
+        desc = svc_info.get("description", "")
+        header = f"{svc_name}"
+        if desc:
+            header += f" — {desc}"
+        lines.append(header)
+        for fname, finfo in fields.items():
+            req = " (required)" if finfo.get("required") else ""
+            fdesc = finfo.get("description", "")
+            example = finfo.get("example")
+            entry = f"  - {fname}{req}"
+            if fdesc:
+                entry += f": {fdesc}"
+            if example is not None:
+                entry += f" (e.g. {example})"
+            lines.append(entry)
         lines.append("")
 
     return "\n".join(lines)
@@ -62,6 +101,7 @@ def build_prompt(ha_context: Dict[str, Any]) -> str:
     programmatically in the step, not by the LLM.
     """
     entity_list = _build_entity_list(ha_context)
+    service_params = _build_service_params(ha_context)
 
     return f"""\
 You are an Entity Selector for a Home Assistant smart home system.
@@ -69,27 +109,36 @@ You are an Entity Selector for a Home Assistant smart home system.
 INPUT
 You receive a JSON object with an "items" array.
 Each item has an "id" (number), "type" ("device_control" or "state"), and "task" (description).
+Some "state" items also have a "condition_value" — the value used in a condition check. You must correct it to match the entity's actual state format.
 
 YOUR JOB
 For each item, resolve:
 1. "entity_id": the exact Home Assistant entity_id that matches the task
 2. "service": the exact Home Assistant service to call (only for "device_control" items; omit for "state" items)
+3. "service_data": a JSON object with the required parameters for the service, extracted from the task description (only for "device_control" items that need parameters; omit if no parameters needed)
 
 OUTPUT FORMAT (STRICT)
 Return a JSON object:
 {{ "items": [
-  {{ "id": 0, "entity_id": "light.kitchen", "service": "light.turn_off" }},
-  {{ "id": 1, "entity_id": "sensor.temperature" }}
+  {{ "id": 0, "entity_id": "climate.thermostat1", "service": "climate.set_temperature", "service_data": {{ "temperature": 21 }} }},
+  {{ "id": 1, "entity_id": "light.kitchen", "service": "light.turn_on", "service_data": {{ "brightness_pct": 80 }} }},
+  {{ "id": 2, "entity_id": "light.bedroom", "service": "light.turn_off" }},
+  {{ "id": 3, "entity_id": "sensor.temperature" }},
+  {{ "id": 4, "entity_id": "sun.sun", "condition_value": "below_horizon" }}
 ] }}
 
 Rules:
 - Return ONLY valid JSON, no explanations, no markdown.
 - Each output item must have the same "id" as the input item.
+- If a task refers to MULTIPLE entities (e.g. "all lights", "thermostats", "both lamps"), return one output item PER entity, all sharing the same "id".
 - "entity_id" MUST be the FULL entity_id including the domain prefix, exactly as listed below (e.g. "light.kitchen", "media_player.musikanlage", NOT just "kitchen" or "musikanlage").
 - Use exact service names from the available services listed (e.g. "light.turn_off", "media_player.turn_off").
+- Include "service_data" ONLY when the task implies specific parameter values (temperature, brightness, color, etc.). Check the SERVICE PARAMETERS section below for which fields each service accepts.
 - If you cannot match a task to an entity, set "entity_id" to "unknown" and "service" to "unknown".
-- Match entities by their friendly_name or entity_id — pick the closest match.
+- Match entities by their friendly_name, aliases, or entity_id — pick the closest match.
+- If an item has a "condition_value", return a corrected "condition_value" that matches the entity's actual Home Assistant state values. For example, if the input says "down" for sun.sun, correct it to "below_horizon". Look at the entity's current state listed below for the correct format.
 
 AVAILABLE ENTITIES AND SERVICES
 
-{entity_list}"""
+{entity_list}
+{service_params}"""

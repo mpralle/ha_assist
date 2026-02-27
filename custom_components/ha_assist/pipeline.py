@@ -41,21 +41,49 @@ def get_ha_context(hass: HomeAssistant) -> Dict[str, Any]:
     except Exception as exc:
         logger.error("Failed to fetch HA entities: %s", exc)
 
-    # ── Fetch services ────────────────────────────────────────────────────
+    # ── Fetch services and field schemas ─────────────────────────────────
+    service_fields: Dict[str, Any] = {}
     try:
         # hass.services.async_services() returns Dict[str, Dict[str, Service]]
         # We process it safely.
         srvs = hass.services.async_services()
         for domain, srv_map in srvs.items():
             services[domain] = list(srv_map.keys())
+            # Extract field details for each service
+            for svc_name, svc_obj in srv_map.items():
+                full_name = f"{domain}.{svc_name}"
+                try:
+                    fields_info: Dict[str, Any] = {}
+                    # Service objects expose .fields as a dict or via schema
+                    raw_fields = getattr(svc_obj, "fields", None) or {}
+                    if isinstance(raw_fields, dict):
+                        for field_name, field_val in raw_fields.items():
+                            if isinstance(field_val, dict):
+                                fields_info[field_name] = {
+                                    "description": field_val.get("description", ""),
+                                    "required": field_val.get("required", False),
+                                    "example": field_val.get("example"),
+                                }
+                            else:
+                                fields_info[field_name] = {"description": "", "required": False}
+                    if fields_info:
+                        svc_desc = getattr(svc_obj, "description", "") or ""
+                        service_fields[full_name] = {
+                            "description": svc_desc,
+                            "fields": fields_info,
+                        }
+                except Exception:
+                    pass  # Skip individual services that fail
     except Exception as exc:
         logger.error("Failed to fetch HA services: %s", exc)
 
-    logger.debug("Fetched %d entities, %d service domains", len(entity_ids), len(services))
+    logger.debug("Fetched %d entities, %d service domains, %d service schemas",
+                 len(entity_ids), len(services), len(service_fields))
     return {
         "entities": entity_ids,
         "entity_details": entity_details,
         "services": services,
+        "service_fields": service_fields,
     }
 
 

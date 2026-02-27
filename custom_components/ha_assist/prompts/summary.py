@@ -39,6 +39,14 @@ def _flatten_results(actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                         "error": branch_action["result"].get("error"),
                     })
 
+        elif action_type == "monitor" and "result" in action:
+            result = action["result"]
+            flat.append({
+                "type": "monitor",
+                "monitor_created": result.get("monitor_created", False),
+                "description": result.get("description", ""),
+            })
+
         # Recurse into nested branches (for conditions without executor results)
         for key in ("then", "else"):
             nested = action.get(key)
@@ -70,6 +78,7 @@ You receive a JSON list of action results. Each item has:
 - "success": true or false
 - "error": error message (if failed)
 Some items may be condition checks with "type": "condition", "actual_state", and "condition_met".
+Some items may be monitor tasks with "type": "monitor", "monitor_created", and "description".
 
 YOUR JOB
 Write a short, natural, user-friendly summary of what happened.
@@ -78,6 +87,7 @@ Rules:
 - Use friendly device names (e.g. "Schreibtischlampe" instead of "light.schreibtischlampe").
 - Use natural language (e.g. "I turned off the Schreibtischlampe" not "light.turn_off on light.schreibtischlampe").
 - For conditions, briefly mention what was checked and the outcome.
+- For monitors, confirm that the monitoring task was set up and briefly say what is being watched.
 - {error_instruction}
 - Keep it concise — one or two sentences.
 - You MUST return valid JSON: {{ "message": "your summary here" }}
