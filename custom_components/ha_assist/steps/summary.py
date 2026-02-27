@@ -36,11 +36,13 @@ class Summary:
 
         # Flatten the nested executor results into a simple list
         flat_results = _flatten_results(actions)
+        language = ha_context.get("language", "en")
 
         if not flat_results:
-            return {"message": "Nothing was executed."}
+            fallback = "Es wurde nichts ausgeführt." if language == "de" else "Nothing was executed."
+            return {"message": fallback}
 
-        system_prompt = build_prompt(ha_context, include_errors=self.include_errors)
+        system_prompt = build_prompt(ha_context, include_errors=self.include_errors, language=language)
         user_message = json.dumps(flat_results, ensure_ascii=False)
 
         try:

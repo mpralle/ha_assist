@@ -77,9 +77,9 @@ SLEEP_TIME = 0.1
 # ── Choose test mode ────────────────────────────────────────────────────────
 # Set to True to test monitor functionality, False for standard commands
 TEST_MONITOR = False
-
-USER_INPUT_STANDARD = "Add Milk to my Einkaufsliste"
-USER_INPUT_MONITOR = "wait until its after 1:16 and open the curtains."
+TEST_LANGUAGE="de"
+USER_INPUT_STANDARD = "Schalte die Schreibtischlampe aus"
+USER_INPUT_MONITOR = "Warte bis es nach 13:16 ist und öffne die Vorhänge."
 USER_INPUT = USER_INPUT_MONITOR if TEST_MONITOR else USER_INPUT_STANDARD
 
 # ── Monitor polling settings ────────────────────────────────────────────────
@@ -225,6 +225,7 @@ def get_real_ha_context() -> dict:
 
     return {
         "hass": "DUMMY_HASS",
+        "language": TEST_LANGUAGE,
         "entities": [e["entity_id"] for e in entity_details],
         "entity_details": entity_details,
         "services": services,

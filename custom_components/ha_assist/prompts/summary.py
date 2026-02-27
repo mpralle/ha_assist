@@ -12,7 +12,7 @@ def _flatten_results(actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     for action in actions:
         action_type = action.get("type")
 
-        if action_type == "device_control" and "result" in action:
+        if action_type in ("device_control", "list") and "result" in action:
             flat.append({
                 "entity_id": action.get("entity_id", "unknown"),
                 "service": action.get("service", "unknown"),
@@ -31,7 +31,7 @@ def _flatten_results(actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             })
             # Include results from the executed branch
             for branch_action in result.get("branch_results", []):
-                if branch_action.get("type") == "device_control" and "result" in branch_action:
+                if branch_action.get("type") in ("device_control", "list") and "result" in branch_action:
                     flat.append({
                         "entity_id": branch_action.get("entity_id", "unknown"),
                         "service": branch_action.get("service", "unknown"),
@@ -56,7 +56,7 @@ def _flatten_results(actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return flat
 
 
-def build_prompt(ha_context: Dict[str, Any], *, include_errors: bool = True) -> str:
+def build_prompt(ha_context: Dict[str, Any], *, include_errors: bool = True, language: str = "en") -> str:
     """Build the system prompt for the Summary step."""
     error_instruction = ""
     if include_errors:
@@ -68,8 +68,12 @@ def build_prompt(ha_context: Dict[str, Any], *, include_errors: bool = True) -> 
             "Only mention successful actions. Do not mention any errors or failures. "
         )
 
+    language_instruction = ""
+    if language == "de":
+        language_instruction = "\n\nCRITICAL: You MUST write your response in German. Use natural German phrasing. The user spoke German, so answer in German."
+
     return f"""\
-You are a friendly smart home assistant summarizing what just happened.
+You are a friendly smart home assistant summarizing what just happened.{language_instruction}
 
 INPUT
 You receive a JSON list of action results. Each item has:
@@ -94,7 +98,4 @@ Rules:
 - No markdown, no extra text outside the JSON.
 
 Example input: [{{"entity_id": "light.kitchen", "service": "light.turn_off", "success": true}}]
-Example output: {{ "message": "I turned off the kitchen light." }}
-
-Example input: [{{"type": "condition", "entity_id": "media_player.tv", "actual_state": "on", "condition_met": true, "branch_executed": "then"}}, {{"entity_id": "light.desk", "service": "light.turn_off", "success": true}}]
-Example output: {{ "message": "The TV was on, so I turned off the desk light." }}"""
+Example output: {{ "message": "I turned off the kitchen light." }}"""

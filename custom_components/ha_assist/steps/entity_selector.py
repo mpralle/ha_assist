@@ -189,7 +189,8 @@ class EntitySelector:
             return {"actions": actions}
 
         # 2. Resolve: send flat list to LLM
-        system_prompt = build_prompt(ha_context)
+        language = ha_context.get("language", "en")
+        system_prompt = build_prompt(ha_context, language=language)
         user_message = json.dumps({"items": items}, ensure_ascii=False)
         llm_result = await async_send_msg(system_prompt, user_message, SCHEMA)
 

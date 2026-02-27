@@ -76,7 +76,7 @@ class HAAssistAgent(conversation.AbstractConversationAgent):
             if store:
                 ha_context["monitor_store"] = store
 
-            result = await async_run_pipeline(text, ha_context, self.hass)
+            result = await async_run_pipeline(text, ha_context, self.hass, language=user_input.language)
 
             response_text = result["message"] if isinstance(result, dict) and "message" in result else str(result)
 

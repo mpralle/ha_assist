@@ -87,10 +87,11 @@ def get_ha_context(hass: HomeAssistant) -> Dict[str, Any]:
     }
 
 
-async def async_run_pipeline(user_input: str, ha_context: Dict[str, Any], hass: HomeAssistant) -> Any:
+async def async_run_pipeline(user_input: str, ha_context: Dict[str, Any], hass: HomeAssistant, language: str = "en") -> Any:
     """Run the four-step agent pipeline."""
     # We pass hass down into the context for Executor to use
     ha_context["hass"] = hass
+    ha_context["language"] = language
 
     result = await TaskExtractor().async_run(user_input, ha_context)
     result = await EntitySelector().async_run(result, ha_context)

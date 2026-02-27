@@ -98,7 +98,7 @@ def _has_list_capability(domains: Set[str]) -> bool:
     return bool(domains & {"todo", "shopping_list"})
 
 
-def build_prompt(ha_context: Dict[str, Any]) -> str:
+def build_prompt(ha_context: Dict[str, Any], language: str = "en") -> str:
     """Build the system prompt, incorporating live Home Assistant state."""
     domains = _get_available_domains(ha_context)
     device_ctrl_desc = _build_device_control_description(domains)
@@ -111,9 +111,13 @@ def build_prompt(ha_context: Dict[str, Any]) -> str:
         type_lines.append('- "list": Add/remove/clear items in shopping or to-do/chores lists.')
     type_lines.append(f'- "state": {state_desc}')
     allowed_types = "\n".join(type_lines)
+    
+    language_instruction = ""
+    if language == "de":
+        language_instruction = "\n\nThe user's input will be in German. Interpret German words, device names, and instructions. Your JSON output must still follow the exact English schema below."
 
     return f"""\
-System Prompt: Smart Home Task Planner (actions wrapper)
+System Prompt: Smart Home Task Planner (actions wrapper){language_instruction}
 
 You are a Task Planner for a sophisticated Home Assistant. Your job is to parse user queries into a structured, executable plan.
 

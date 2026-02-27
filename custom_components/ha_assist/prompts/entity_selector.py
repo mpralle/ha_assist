@@ -92,7 +92,7 @@ def _build_service_params(ha_context: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def build_prompt(ha_context: Dict[str, Any]) -> str:
+def build_prompt(ha_context: Dict[str, Any], language: str = "en") -> str:
     """Build the system prompt for the EntitySelector step.
 
     The prompt is intentionally simple: the LLM receives a flat list of
@@ -102,9 +102,13 @@ def build_prompt(ha_context: Dict[str, Any]) -> str:
     """
     entity_list = _build_entity_list(ha_context)
     service_params = _build_service_params(ha_context)
+    
+    language_instruction = ""
+    if language == "de":
+        language_instruction = "\n\nThe user's task descriptions may be written in German. Match them to entities by their friendly names, aliases, or entity IDs. Your JSON output must still follow the exact English schema below."
 
     return f"""\
-You are an Entity Selector for a Home Assistant smart home system.
+You are an Entity Selector for a Home Assistant smart home system.{language_instruction}
 
 INPUT
 You receive a JSON object with an "items" array.

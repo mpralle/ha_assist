@@ -42,5 +42,6 @@ class TaskExtractor:
     """Step 1 of the agent pipeline."""
 
     async def async_run(self, user_input: str, ha_context: Dict[str, Any]) -> Any:
-        system_prompt = build_prompt(ha_context)
+        language = ha_context.get("language", "en")
+        system_prompt = build_prompt(ha_context, language=language)
         return await async_send_msg(system_prompt, user_input, SCHEMA)
